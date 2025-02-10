@@ -1,0 +1,33 @@
+[project]
+name = "SpotiBox"
+version = "0.1.0"
+description = "Control spotify with RFID tags"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "spotipy>=2.25.0",
+]
+
+[tool.ruff]
+# Ruff configuration settings
+lint.select = ["E", "F", "B", "ANN"]
+lint.ignore = ["E501"]
+line-length = 100
+
+[tool.mypy]
+# MyPy configuration settings
+python_version = 3.11
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Pytest configuration settings
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.3.4",
+    "ruff>=0.9.6",
+]
