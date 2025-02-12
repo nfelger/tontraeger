@@ -2,6 +2,7 @@
 
 import asyncio
 import argparse
+import time
 from typing import Optional
 
 from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE
@@ -28,7 +29,7 @@ class PlaybackController:
         Raises:
             Exception: if no mapping exists for the tag.
         """
-        playlist_uri: Optional[str] = self.mapper.get_playlist_uri(tag_uid)
+        playlist_uri = self.mapper.get_playlist_uri(tag_uid)
         if playlist_uri is None:
             raise Exception(f"No mapping found for tag: {tag_uid}")
         if playlist_uri.upper() == STOP_COMMAND:
@@ -49,18 +50,29 @@ async def process_tag(tag: str, controller: PlaybackController) -> None:
 
 async def main_loop(reader: RFIDReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
     """
-    Continuously listens for RFID tags. Optionally, stops after max_iterations (useful for testing).
+    Continuously listens for RFID tags. Optionally stops after max_iterations (useful for testing).
+    A debouncing mechanism is implemented to ignore duplicate reads of the same tag within a short interval.
     The blocking reader.read_tag() call is run in an executor so the event loop remains responsive.
     """
     loop = asyncio.get_running_loop()
     iteration = 0
+    last_tag = None
+    last_tag_time = 0.0
+    DEBOUNCE_INTERVAL = 5.0  # seconds
+
     try:
         while True:
-            # Offload the blocking RFID read to an executor.
             tag = await loop.run_in_executor(None, reader.read_tag)
-            if tag:
-                # Start processing the tag concurrently.
-                asyncio.create_task(process_tag(tag, controller))
+            now = time.time()
+            if tag == last_tag and (now - last_tag_time) < DEBOUNCE_INTERVAL:
+                print(f"Ignoring duplicate tag {tag} (debounce active)")
+                continue
+
+            last_tag = tag
+            last_tag_time = now
+
+            # Process the new tag concurrently.
+            asyncio.create_task(process_tag(tag, controller))
             iteration += 1
             if max_iterations is not None and iteration >= max_iterations:
                 break
@@ -70,7 +82,6 @@ async def main_loop(reader: RFIDReader, controller: PlaybackController, max_iter
         reader.cleanup()
 
 def main() -> None:
-    # For now we ignore command-line arguments as we are running continuously.
     parser = argparse.ArgumentParser(
         description="Continuous RFID-controlled Spotify playback."
     )
