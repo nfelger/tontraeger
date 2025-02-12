@@ -1,8 +1,13 @@
+# spotibox/control.py
+
+import asyncio
 import argparse
 from typing import Optional
+
 from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE
 from spotify_api import SpotifyAPI
 from playlist_mapper import PlaylistMapper
+from rfid_reader import RFIDReader
 
 # Constant representing the stop command.
 STOP_COMMAND: str = "STOP"
@@ -31,29 +36,53 @@ class PlaybackController:
         else:
             self.spotify_api.start_playlist(playlist_uri)
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Control Spotify playback based on a tag ID."
-    )
-    parser.add_argument(
-        "tag_id",
-        type=str,
-        help="The tag ID to process (maps to a playlist URI or a STOP command)."
-    )
-    args = parser.parse_args()
-
-    # Create a SpotifyAPI instance using config values.
-    spotify_api = SpotifyAPI(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE)
-    # Create a PlaylistMapper instance (using default DB: playlists.db).
-    mapper = PlaylistMapper()
-    # Create the controller.
-    controller = PlaybackController(spotify_api, mapper)
-
+async def process_tag(tag: str, controller: PlaybackController) -> None:
+    """
+    Asynchronously processes a tag by invoking the controller.
+    Errors are caught and logged.
+    """
     try:
-        controller.handle_tag(args.tag_id)
-        print(f"Playback action for tag '{args.tag_id}' executed successfully.")
+        controller.handle_tag(tag)
+        print(f"Processed tag {tag} successfully.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error processing tag {tag}: {e}")
+
+async def main_loop(reader: RFIDReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
+    """
+    Continuously listens for RFID tags. Optionally, stops after max_iterations (useful for testing).
+    The blocking reader.read_tag() call is run in an executor so the event loop remains responsive.
+    """
+    loop = asyncio.get_running_loop()
+    iteration = 0
+    try:
+        while True:
+            # Offload the blocking RFID read to an executor.
+            tag = await loop.run_in_executor(None, reader.read_tag)
+            if tag:
+                # Start processing the tag concurrently.
+                asyncio.create_task(process_tag(tag, controller))
+            iteration += 1
+            if max_iterations is not None and iteration >= max_iterations:
+                break
+    except KeyboardInterrupt:
+        print("Shutting down.")
+    finally:
+        reader.cleanup()
+
+def main() -> None:
+    # For now we ignore command-line arguments as we are running continuously.
+    parser = argparse.ArgumentParser(
+        description="Continuous RFID-controlled Spotify playback."
+    )
+    parser.parse_args()
+
+    spotify_api = SpotifyAPI(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE)
+    mapper = PlaylistMapper()
+    controller = PlaybackController(spotify_api, mapper)
+    reader = RFIDReader()
+
+    # Run the asynchronous main loop.
+    asyncio.run(main_loop(reader, controller))
 
 if __name__ == "__main__":
     main()
