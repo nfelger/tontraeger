@@ -1,5 +1,3 @@
-# spotibox/playlist_mapper.py
-
 import sqlite3
 from typing import Optional
 
@@ -28,9 +26,9 @@ class PlaylistMapper:
         finally:
             conn.close()
 
-    def insert_mapping(self, tag_uid: str, playlist_uri: str) -> None:
+    def insert_mapping(self, tag_uid: str, share_url: str) -> None:
         """
-        Inserts or updates a mapping between the tag UID and the playlist URI.
+        Inserts or updates a mapping between the tag UID and the Spotify share URL.
         """
         conn = sqlite3.connect(self.db_path)
         try:
@@ -40,7 +38,7 @@ class PlaylistMapper:
                 INSERT OR REPLACE INTO playlists (tag_uid, playlist_uri)
                 VALUES (?, ?)
                 """,
-                (tag_uid, playlist_uri),
+                (tag_uid, share_url),
             )
             conn.commit()
         finally:
@@ -48,7 +46,7 @@ class PlaylistMapper:
 
     def get_playlist_uri(self, tag_uid: str) -> Optional[str]:
         """
-        Retrieves the playlist URI associated with the given tag UID.
+        Retrieves the Spotify share URL (or special command) associated with the given tag UID.
         Returns None if no mapping exists.
         """
         conn = sqlite3.connect(self.db_path)

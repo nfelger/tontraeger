@@ -1,5 +1,3 @@
-# tests/test_playlist_mapper.py
-
 import os
 import tempfile
 import pytest

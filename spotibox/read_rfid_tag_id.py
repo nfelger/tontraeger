@@ -1,11 +1,9 @@
-# spotibox/read_rfid_tag_id.py
-
-from rfid_reader import RFIDReader
+from spotibox.rfid_reader import RFIDReader
 reader = RFIDReader()
 
 try:
     print("Place your RFID card near the reader...")
-    id = reader.read_tag()
-    print(f"ID: {id}")
+    tag_id = reader.read_tag()
+    print(f"ID: {tag_id}")
 finally:
     reader.cleanup()

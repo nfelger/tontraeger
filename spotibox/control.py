@@ -1,24 +1,25 @@
-# spotibox/control.py
-
 import asyncio
-import argparse
 import time
-from typing import Optional
+from typing import Optional, Protocol
 
-from config import CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE
-from spotify_api import SpotifyAPI
-from playlist_mapper import PlaylistMapper
-from rfid_reader import RFIDReader
+from spotibox.config import SONOS_SPEAKER_NAME
+from spotibox.playlist_mapper import PlaylistMapper
+from spotibox.sonos_api import SonosAPI
+
+
+class TagReader(Protocol):
+    def read_tag(self) -> str: ...
+    def cleanup(self) -> None: ...
 
 # Constant representing the stop command.
 STOP_COMMAND: str = "STOP"
 
 class PlaybackController:
-    def __init__(self, spotify_api: SpotifyAPI, mapper: PlaylistMapper) -> None:
+    def __init__(self, sonos_api: SonosAPI, mapper: PlaylistMapper) -> None:
         """
-        Initializes the controller with a SpotifyAPI instance and a PlaylistMapper.
+        Initializes the controller with a SonosAPI instance and a PlaylistMapper.
         """
-        self.spotify_api = spotify_api
+        self.sonos_api = sonos_api
         self.mapper = mapper
 
     def handle_tag(self, tag_uid: str) -> None:
@@ -33,9 +34,9 @@ class PlaybackController:
         if playlist_uri is None:
             raise Exception(f"No mapping found for tag: {tag_uid}")
         if playlist_uri.upper() == STOP_COMMAND:
-            self.spotify_api.stop_playback()
+            self.sonos_api.stop_playback()
         else:
-            self.spotify_api.start_playlist(playlist_uri)
+            self.sonos_api.start_playlist(playlist_uri)
 
 async def process_tag(tag: str, controller: PlaybackController) -> None:
     """
@@ -48,7 +49,7 @@ async def process_tag(tag: str, controller: PlaybackController) -> None:
     except Exception as e:
         print(f"Error processing tag {tag}: {e}")
 
-async def main_loop(reader: RFIDReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
+async def main_loop(reader: TagReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
     """
     Continuously listens for RFID tags. Optionally stops after max_iterations (useful for testing).
     A debouncing mechanism is implemented to ignore duplicate reads of the same tag within a short interval.
@@ -82,14 +83,11 @@ async def main_loop(reader: RFIDReader, controller: PlaybackController, max_iter
         reader.cleanup()
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Continuous RFID-controlled Spotify playback."
-    )
-    parser.parse_args()
+    from spotibox.rfid_reader import RFIDReader
 
-    spotify_api = SpotifyAPI(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SCOPE)
+    sonos_api = SonosAPI(SONOS_SPEAKER_NAME)
     mapper = PlaylistMapper()
-    controller = PlaybackController(spotify_api, mapper)
+    controller = PlaybackController(sonos_api, mapper)
     reader = RFIDReader()
 
     # Run the asynchronous main loop.

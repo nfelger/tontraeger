@@ -1,5 +1,3 @@
-# tests/test_control.py
-
 import pytest
 import asyncio
 from typing import Optional
@@ -7,13 +5,13 @@ from spotibox.control import PlaybackController, STOP_COMMAND, main_loop
 
 # Dummy implementations for testing purposes.
 
-class DummySpotifyAPI:
+class DummySonosAPI:
     def __init__(self) -> None:
         self.started_playlist: Optional[str] = None
         self.stopped: bool = False
 
-    def start_playlist(self, playlist_uri: str) -> None:
-        self.started_playlist = playlist_uri
+    def start_playlist(self, share_url: str) -> None:
+        self.started_playlist = share_url
 
     def stop_playback(self) -> None:
         self.stopped = True
@@ -26,33 +24,33 @@ class DummyPlaylistMapper:
         return self.mapping.get(tag_uid)
 
 def test_handle_tag_starts_playlist() -> None:
-    # Given a tag that maps to a normal playlist URI.
-    mapping = {"tag1": "spotify:playlist:TEST_URI"}
+    # Given a tag that maps to a Spotify share URL.
+    mapping = {"tag1": "https://open.spotify.com/playlist/TEST_URI"}
     mapper = DummyPlaylistMapper(mapping)
-    spotify_api = DummySpotifyAPI()
-    controller = PlaybackController(spotify_api, mapper)
+    sonos_api = DummySonosAPI()
+    controller = PlaybackController(sonos_api, mapper)
 
     controller.handle_tag("tag1")
-    assert spotify_api.started_playlist == "spotify:playlist:TEST_URI"
-    assert not spotify_api.stopped
+    assert sonos_api.started_playlist == "https://open.spotify.com/playlist/TEST_URI"
+    assert not sonos_api.stopped
 
 def test_handle_tag_stops_playback() -> None:
     # Given a tag that maps to the special stop command.
     mapping = {"tag2": STOP_COMMAND}
     mapper = DummyPlaylistMapper(mapping)
-    spotify_api = DummySpotifyAPI()
-    controller = PlaybackController(spotify_api, mapper)
+    sonos_api = DummySonosAPI()
+    controller = PlaybackController(sonos_api, mapper)
 
     controller.handle_tag("tag2")
-    assert spotify_api.stopped
-    assert spotify_api.started_playlist is None
+    assert sonos_api.stopped
+    assert sonos_api.started_playlist is None
 
 def test_handle_tag_no_mapping() -> None:
     # When a tag does not exist in the mapping, an exception is raised.
-    mapping = {"tag3": "spotify:playlist:TEST_URI"}
+    mapping = {"tag3": "https://open.spotify.com/playlist/TEST_URI"}
     mapper = DummyPlaylistMapper(mapping)
-    spotify_api = DummySpotifyAPI()
-    controller = PlaybackController(spotify_api, mapper)
+    sonos_api = DummySonosAPI()
+    controller = PlaybackController(sonos_api, mapper)
 
     with pytest.raises(Exception, match="No mapping found for tag: missing"):
         controller.handle_tag("missing")

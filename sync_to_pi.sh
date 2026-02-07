@@ -4,9 +4,6 @@
 # This script rsyncs your local directory with a remote directory over SSH,
 # excluding any files that are ignored by your .gitignore.
 #
-# It uses process substitution to generate an exclude list from:
-#   git ls-files -i --exclude-standard
-#
 # Example:
 #   ./sync.sh . user@remote:/path/to/destination
 
@@ -26,11 +23,5 @@ else
     REMOTE_LOCATION="$1"
 fi
 
-# Ensure we are inside a Git repository
-if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
-    echo "Error: This script must be run from within a Git repository."
-    exit 1
-fi
-
-# Run rsync over SSH.
-rsync -a --exclude-from=<(git ls-files --others --ignored --exclude-standard) --compress --verbose --partial -e ssh "$LOCAL_DIR" "$REMOTE_LOCATION" 
+# Run rsync over SSH, using .gitignore rules to skip ignored files/directories.
+rsync -a --filter=':- .gitignore' --compress --verbose --partial -e ssh "$LOCAL_DIR" "$REMOTE_LOCATION"
