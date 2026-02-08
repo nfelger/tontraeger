@@ -9,7 +9,7 @@ class RFIDReader:
         """
         Blocks until a tag is presented and returns its UID as a string.
         """
-        tag_id, _ = self.reader.read()
+        tag_id = self.reader.read_id()
         return str(tag_id)
 
     def cleanup(self) -> None:
