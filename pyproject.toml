@@ -6,9 +6,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "flask>=3.0",
-    "mfrc522>=0.0.3",
+    "mfrc522>=0.0.3; sys_platform == 'linux'",
     "python-dotenv>=1.0.1",
-    "RPi.GPIO>=0.7.1",
+    "RPi.GPIO>=0.7.1; sys_platform == 'linux'",
     "soco>=0.30.0",
 ]
 

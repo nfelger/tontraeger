@@ -520,9 +520,9 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "flask" },
-    { name = "mfrc522" },
+    { name = "mfrc522", marker = "sys_platform == 'linux'" },
     { name = "python-dotenv" },
-    { name = "rpi-gpio" },
+    { name = "rpi-gpio", marker = "sys_platform == 'linux'" },
     { name = "soco" },
 ]
 
@@ -537,9 +537,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flask", specifier = ">=3.0" },
-    { name = "mfrc522", specifier = ">=0.0.3" },
+    { name = "mfrc522", marker = "sys_platform == 'linux'", specifier = ">=0.0.3" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
-    { name = "rpi-gpio", specifier = ">=0.7.1" },
+    { name = "rpi-gpio", marker = "sys_platform == 'linux'", specifier = ">=0.7.1" },
     { name = "soco", specifier = ">=0.30.0" },
 ]
 
