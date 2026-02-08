@@ -17,36 +17,41 @@ class TagMapper:
                 """
                 CREATE TABLE IF NOT EXISTS tags (
                     tag_uid TEXT PRIMARY KEY,
-                    media_uri TEXT NOT NULL
+                    media_uri TEXT NOT NULL,
+                    name TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            try:
+                cursor.execute("ALTER TABLE tags ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
         finally:
             conn.close()
 
-    def insert_mapping(self, tag_uid: str, media_uri: str) -> None:
+    def insert_mapping(self, tag_uid: str, media_uri: str, name: str = "") -> None:
         """Inserts or updates a mapping between a tag UID and a media URI."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO tags (tag_uid, media_uri)
-                VALUES (?, ?)
+                INSERT OR REPLACE INTO tags (tag_uid, media_uri, name)
+                VALUES (?, ?, ?)
                 """,
-                (tag_uid, media_uri),
+                (tag_uid, media_uri, name),
             )
             conn.commit()
         finally:
             conn.close()
 
-    def get_all_mappings(self) -> list[tuple[str, str]]:
-        """Returns all (tag_uid, media_uri) mappings."""
+    def get_all_mappings(self) -> list[tuple[str, str, str]]:
+        """Returns all (tag_uid, media_uri, name) mappings."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT tag_uid, media_uri FROM tags ORDER BY tag_uid")
+            cursor.execute("SELECT tag_uid, media_uri, name FROM tags ORDER BY tag_uid")
             return cursor.fetchall()
         finally:
             conn.close()

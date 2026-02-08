@@ -37,10 +37,11 @@ def test_index_empty(client: FlaskClient) -> None:
 
 
 def test_add_mapping(client: FlaskClient) -> None:
-    resp = client.post("/mappings", data={"tag_uid": "111", "media_uri": "https://example.com"})
+    resp = client.post("/mappings", data={"tag_uid": "111", "media_uri": "https://example.com", "name": "My Playlist"})
     assert resp.status_code == 302
 
     resp = client.get("/")
+    assert b"My Playlist" in resp.data
     assert b"111" in resp.data
     assert b"https://example.com" in resp.data
 

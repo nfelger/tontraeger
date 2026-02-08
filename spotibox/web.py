@@ -341,6 +341,10 @@ PAGE_TEMPLATE = """
     <form method="post" action="{{ url_for('add_mapping') }}">
       <div class="form-row">
         <div class="form-field">
+          <label for="name">Name</label>
+          <input type="text" id="name" name="name" placeholder="e.g. Kids playlist">
+        </div>
+        <div class="form-field">
           <label for="tag_uid">Tag UID</label>
           <input type="text" id="tag_uid" name="tag_uid" placeholder="e.g. 123456789" required>
         </div>
@@ -360,11 +364,14 @@ PAGE_TEMPLATE = """
   </div>
 
   {% if mappings %}
-    {% for tag_uid, media_uri in mappings %}
+    {% for tag_uid, media_uri, name in mappings %}
     <div class="card">
       <div class="card-groove"></div>
       <div class="card-body">
-        <div class="card-tag">{{ tag_uid }}</div>
+        <div class="card-tag">{{ name if name else tag_uid }}</div>
+        {% if name %}
+          <div class="card-uri" title="{{ tag_uid }}">{{ tag_uid }}</div>
+        {% endif %}
         {% if media_uri.upper() == 'STOP' %}
           <div class="card-uri stop-cmd">&#9632; stop playback</div>
         {% else %}
@@ -434,9 +441,10 @@ def now_playing() -> Response:
 def add_mapping() -> Response:
     tag_uid = request.form.get("tag_uid", "").strip()
     media_uri = request.form.get("media_uri", "").strip()
+    name = request.form.get("name", "").strip()
     if tag_uid and media_uri:
-        mapper.insert_mapping(tag_uid, media_uri)
-        flash(f"Mapping added for tag {escape(tag_uid)}")
+        mapper.insert_mapping(tag_uid, media_uri, name)
+        flash(f"Mapping added for tag {escape(name or tag_uid)}")
     return redirect(url_for("index"))
 
 

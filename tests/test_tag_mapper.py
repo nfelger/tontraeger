@@ -18,7 +18,7 @@ def test_insert_and_get_mapping(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     test_tag = "1234567890"
     test_uri = "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0"
-    mapper.insert_mapping(test_tag, test_uri)
+    mapper.insert_mapping(test_tag, test_uri, name="Jazz Radio")
 
     retrieved_uri = mapper.get_uri(test_tag)
     assert retrieved_uri == test_uri
@@ -31,12 +31,12 @@ def test_get_nonexistent_mapping(temp_db: str) -> None:
 
 def test_get_all_mappings(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
-    mapper.insert_mapping("aaa", "uri_a")
+    mapper.insert_mapping("aaa", "uri_a", "Alpha")
     mapper.insert_mapping("bbb", "uri_b")
-    mapper.insert_mapping("ccc", "uri_c")
+    mapper.insert_mapping("ccc", "uri_c", "Charlie")
 
     mappings = mapper.get_all_mappings()
-    assert mappings == [("aaa", "uri_a"), ("bbb", "uri_b"), ("ccc", "uri_c")]
+    assert mappings == [("aaa", "uri_a", "Alpha"), ("bbb", "uri_b", ""), ("ccc", "uri_c", "Charlie")]
 
 
 def test_get_all_mappings_empty(temp_db: str) -> None:
