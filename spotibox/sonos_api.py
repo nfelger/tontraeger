@@ -39,24 +39,28 @@ class SonosAPI:
                 f"Speaker '{self.speaker_name}' not found. Available speakers: {available}"
             )
 
-    def start_playlist(self, share_url: str) -> None:
+    def play_uri(self, uri: str) -> None:
         """
-        Start playback using Spotify share URL.
-        Uses ShareLinkPlugin to avoid UPnP Error 804.
+        Clear the queue, add the URI, and play from the start.
+
+        Works with both directly-playable URIs (radio streams, tracks)
+        and container URIs (albums, playlists).
 
         Args:
-            share_url: Full Spotify share URL (e.g., https://open.spotify.com/playlist/ID)
+            uri: A SoCo-compatible media URI
         """
         if not self._speaker:
             raise Exception("Speaker not initialized")
 
         self._speaker.clear_queue()
-        share_link = ShareLinkPlugin(self._speaker)
-        share_link.add_share_link_to_queue(share_url)
+        if uri.startswith("https://"):
+            ShareLinkPlugin(self._speaker).add_share_link_to_queue(uri)
+        else:
+            self._speaker.add_uri_to_queue(uri)
         self._speaker.play_from_queue(0)
 
     def stop_playback(self) -> None:
-        """Pause playback on speaker"""
+        """Pause playback on speaker."""
         if not self._speaker:
             raise Exception("Speaker not initialized")
 

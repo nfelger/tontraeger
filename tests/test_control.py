@@ -7,48 +7,48 @@ from spotibox.control import PlaybackController, STOP_COMMAND, main_loop
 
 class DummySonosAPI:
     def __init__(self) -> None:
-        self.started_playlist: Optional[str] = None
+        self.played_uri: Optional[str] = None
         self.stopped: bool = False
 
-    def start_playlist(self, share_url: str) -> None:
-        self.started_playlist = share_url
+    def play_uri(self, uri: str) -> None:
+        self.played_uri = uri
 
     def stop_playback(self) -> None:
         self.stopped = True
 
-class DummyPlaylistMapper:
+class DummyTagMapper:
     def __init__(self, mapping: dict) -> None:
         self.mapping = mapping
 
-    def get_playlist_uri(self, tag_uid: str) -> Optional[str]:
+    def get_uri(self, tag_uid: str) -> Optional[str]:
         return self.mapping.get(tag_uid)
 
-def test_handle_tag_starts_playlist() -> None:
-    # Given a tag that maps to a Spotify share URL.
-    mapping = {"tag1": "https://open.spotify.com/playlist/TEST_URI"}
-    mapper = DummyPlaylistMapper(mapping)
+def test_handle_tag_plays_uri() -> None:
+    # Given a tag that maps to a media URI.
+    mapping = {"tag1": "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0"}
+    mapper = DummyTagMapper(mapping)
     sonos_api = DummySonosAPI()
     controller = PlaybackController(sonos_api, mapper)
 
     controller.handle_tag("tag1")
-    assert sonos_api.started_playlist == "https://open.spotify.com/playlist/TEST_URI"
+    assert sonos_api.played_uri == "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0"
     assert not sonos_api.stopped
 
 def test_handle_tag_stops_playback() -> None:
     # Given a tag that maps to the special stop command.
     mapping = {"tag2": STOP_COMMAND}
-    mapper = DummyPlaylistMapper(mapping)
+    mapper = DummyTagMapper(mapping)
     sonos_api = DummySonosAPI()
     controller = PlaybackController(sonos_api, mapper)
 
     controller.handle_tag("tag2")
     assert sonos_api.stopped
-    assert sonos_api.started_playlist is None
+    assert sonos_api.played_uri is None
 
 def test_handle_tag_no_mapping() -> None:
     # When a tag does not exist in the mapping, an exception is raised.
-    mapping = {"tag3": "https://open.spotify.com/playlist/TEST_URI"}
-    mapper = DummyPlaylistMapper(mapping)
+    mapping = {"tag3": "x-sonosapi-radio:s12345?sid=254&flags=8224&sn=0"}
+    mapper = DummyTagMapper(mapping)
     sonos_api = DummySonosAPI()
     controller = PlaybackController(sonos_api, mapper)
 
@@ -87,10 +87,10 @@ async def test_main_loop_no_duplicate():
     tags = ['123', '456']
     reader = FakeRFIDReader(tags)
     controller = FakePlaybackController()
-    
+
     # Process exactly 2 distinct tag events.
     await main_loop(reader, controller, max_iterations=2)
-    
+
     # Allow any spawned tasks time to complete.
     await asyncio.sleep(0.1)
     assert controller.handled_tags == ['123', '456']
@@ -101,11 +101,11 @@ async def test_main_loop_debounce_duplicate():
     tags = ['123', '123', '456']
     reader = FakeRFIDReader(tags)
     controller = FakePlaybackController()
-    
+
     # Even though there are 3 reads, the duplicate '123' should be debounced.
     # We set max_iterations=2 so that only 2 distinct tags are processed.
     await main_loop(reader, controller, max_iterations=2)
-    
+
     # Allow any spawned tasks time to complete.
     await asyncio.sleep(0.1)
     # The expected behavior: first '123' is processed, second '123' is ignored, then '456' is processed.

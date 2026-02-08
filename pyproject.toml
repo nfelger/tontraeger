@@ -1,7 +1,7 @@
 [project]
 name = "SpotiBox"
 version = "0.1.0"
-description = "Control spotify with RFID tags"
+description = "Control Sonos with RFID tags"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

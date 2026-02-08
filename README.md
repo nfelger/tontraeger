@@ -1,10 +1,10 @@
 # SpotiBox
 
-A Raspberry Pi-based Sonos controller that uses RFID tags to control music playback. Simply tap an RFID card to play a specific playlist on your Sonos speaker or stop playback.
+A Raspberry Pi-based Sonos controller that uses RFID tags to control music playback. Simply tap an RFID card to play a specific resource on your Sonos speaker or stop playback.
 
 ## Overview
 
-SpotiBox bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different playlist or album, allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick playlist access, or just a fun IoT project.
+SpotiBox bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different media resource (albums, radio stations, etc.), allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick access to favourite content, or just a fun IoT project.
 
 ## Features
 
@@ -12,8 +12,8 @@ SpotiBox bridges the physical and digital worlds by mapping RFID tags to content
 - **Stop Command Support**: Designate a specific tag to pause playback
 - **Tag Debouncing**: Prevents repeated triggers from the same tag within 5 seconds
 - **Async Architecture**: Non-blocking event loop for responsive tag reading
-- **Local Sonos Control**: Direct control of Sonos speakers
-- **Persistent Mappings**: SQLite database stores tag-to-playlist associations
+- **Local Sonos Control**: Direct control of Sonos speakers via SoCo's `play_uri`
+- **Persistent Mappings**: SQLite database stores tag-to-content associations
 - **Testing Suite**: Comprehensive unit tests for core functionality
 
 ## Requirements
@@ -23,7 +23,6 @@ SpotiBox bridges the physical and digital worlds by mapping RFID tags to content
 - **RFID Tags/Cards** (13.56 MHz compatible)
 - Jumper wires for connections
 - Sonos speaker on the same network
-- Spotify Premium account (for Spotify content playback)
 
 ## Installation
 
@@ -74,7 +73,7 @@ python -m spotibox.control
 
 This starts the main loop that:
 - Continuously listens for RFID tags
-- Maps tag IDs to Spotify playlists
+- Maps tag IDs to media URIs
 - Controls playback on your Sonos speaker
 
 Press `Ctrl+C` to stop.
@@ -89,15 +88,17 @@ python -m spotibox.read_rfid_tag_id
 
 ### Managing Tag Mappings
 
-Tag-to-playlist mappings are stored in `playlists.db`. To add or modify mappings, you can:
+Tag-to-URI mappings are stored in `tags.db`. To add or modify mappings, you can:
 
-1. Use the `PlaylistMapper` class in your own scripts:
+1. Use the `TagMapper` class in your own scripts:
    ```python
-   from spotibox.playlist_mapper import PlaylistMapper
+   from spotibox.tag_mapper import TagMapper
 
-   mapper = PlaylistMapper()
-   # Use full Spotify share URLs
-   mapper.insert_mapping("123456789", "https://open.spotify.com/playlist/YOUR_PLAYLIST_ID")
+   mapper = TagMapper()
+   # Music service share links
+   mapper.insert_mapping("123456789", "https://open.spotify.com/album/YOUR_ALBUM_ID")
+   # Native Sonos URIs (e.g. TuneIn radio)
+   mapper.insert_mapping("246813579", "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0")
    mapper.insert_mapping("987654321", "STOP")  # Special stop command
    ```
 
@@ -109,20 +110,17 @@ Tag-to-playlist mappings are stored in `playlists.db`. To add or modify mappings
 spotibox/
 ├── config.py              # Configuration and environment variables
 ├── control.py             # Main controller and async event loop
-├── playlist_mapper.py     # SQLite-backed tag-to-playlist mapping
+├── tag_mapper.py          # SQLite-backed tag-to-URI mapping
 ├── rfid_reader.py         # RFID tag reading interface
 ├── sonos_api.py           # Sonos speaker control wrapper
 └── read_rfid_tag_id.py    # Utility to read tag IDs
 
-scripts/
-└── migrate_db.py          # Database migration script (Spotify URIs to URLs)
-
 tests/
 ├── test_control.py        # Controller tests
-├── test_playlist_mapper.py # Database mapping tests
+├── test_tag_mapper.py     # Database mapping tests
 └── test_sonos_api.py      # Sonos API tests
 
-playlists.db               # SQLite database (auto-created)
+tags.db                    # SQLite database (auto-created)
 sync_to_pi.sh              # Deployment script for Raspberry Pi
 ```
 
@@ -135,33 +133,33 @@ sync_to_pi.sh              # Deployment script for Raspberry Pi
    - Blocks until a tag is detected, returns tag ID as string
    - Handles GPIO cleanup on shutdown
 
-2. **PlaylistMapper** (`playlist_mapper.py`)
+2. **TagMapper** (`tag_mapper.py`)
    - SQLite-backed persistence layer
-   - Maps RFID tag UIDs to Spotify share URLs
+   - Maps RFID tag UIDs to media URIs
    - Supports special "STOP" command
 
 3. **SonosAPI** (`sonos_api.py`)
    - Wraps SoCo library for Sonos control
    - Discovers and controls specified Sonos speaker
-   - Uses ShareLinkPlugin for Spotify content
-   - Provides `start_playlist()` and `stop_playback()` methods
+   - Uses `play_uri` to support any SoCo-compatible media URI
+   - Provides `play_uri()` and `stop_playback()` methods
 
 4. **PlaybackController** (`control.py`)
-   - Orchestrates RFID reading and Spotify control
+   - Orchestrates RFID reading and Sonos control
    - Implements tag debouncing (5-second window)
    - Async event loop for non-blocking operation
 
 ### Data Flow
 
 ```
-RFID Tag → RFIDReader → PlaybackController → PlaylistMapper → SonosAPI → Sonos Speaker
+RFID Tag → RFIDReader → PlaybackController → TagMapper → SonosAPI → Sonos Speaker
 ```
 
 1. User taps RFID tag
 2. RFIDReader detects tag and returns UID
 3. PlaybackController checks debouncing logic
-4. PlaylistMapper looks up Spotify share URL for tag UID
-5. SonosAPI starts playback on Sonos speaker using ShareLinkPlugin
+4. TagMapper looks up media URI for tag UID
+5. SonosAPI starts playback on Sonos speaker via `play_uri`
 
 ## Development
 
