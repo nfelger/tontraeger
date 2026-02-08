@@ -59,6 +59,15 @@ class SonosAPI:
             self._speaker.add_uri_to_queue(uri)
         self._speaker.play_from_queue(0)
 
+    def get_current_track_uri(self) -> Optional[str]:
+        """Return the media URI of the currently playing track, or None."""
+        if not self._speaker:
+            raise Exception("Speaker not initialized")
+
+        info = self._speaker.get_current_track_info()
+        uri = info.get("uri", "")
+        return uri if uri else None
+
     def stop_playback(self) -> None:
         """Pause playback on speaker."""
         if not self._speaker:

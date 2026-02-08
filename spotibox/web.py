@@ -1,15 +1,18 @@
 import secrets
 
-from flask import Flask, flash, redirect, render_template_string, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
 from markupsafe import escape
 from werkzeug.wrappers import Response
 
+from spotibox.config import SONOS_SPEAKER_NAME
+from spotibox.sonos_api import SonosAPI
 from spotibox.tag_mapper import TagMapper
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
 mapper = TagMapper()
+sonos = SonosAPI(SONOS_SPEAKER_NAME)
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -173,6 +176,24 @@ PAGE_TEMPLATE = """
   }
   .btn-primary:hover { background: var(--amber-hi); }
 
+  .btn-now-playing {
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    align-self: flex-end;
+    margin-top: 0.3rem;
+    white-space: nowrap;
+  }
+  .btn-now-playing:hover {
+    background: rgba(212, 115, 26, 0.12);
+    color: var(--amber-hi);
+    border-color: var(--amber-hi);
+  }
+  .btn-now-playing.loading {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+
   .btn-delete {
     background: transparent;
     color: var(--muted);
@@ -328,6 +349,7 @@ PAGE_TEMPLATE = """
           <input type="text" id="media_uri" name="media_uri" placeholder="Spotify link, Sonos URI, or STOP" required>
         </div>
         <button type="submit" class="btn btn-primary">Add</button>
+        <button type="button" class="btn btn-now-playing" id="now-playing-btn" onclick="fetchNowPlaying()">Now Playing</button>
       </div>
     </form>
   </div>
@@ -364,6 +386,30 @@ PAGE_TEMPLATE = """
   <footer>SpotiBox &middot; Vinyl In, Sound Out</footer>
 
 </div>
+<script>
+function fetchNowPlaying() {
+  var btn = document.getElementById('now-playing-btn');
+  var input = document.getElementById('media_uri');
+  btn.classList.add('loading');
+  btn.textContent = 'Fetching\u2026';
+  fetch('{{ url_for("now_playing") }}')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.uri) {
+        input.value = data.uri;
+        input.focus();
+      } else {
+        btn.textContent = 'Nothing playing';
+        setTimeout(function() { btn.textContent = 'Now Playing'; }, 2000);
+      }
+    })
+    .catch(function() {
+      btn.textContent = 'Error';
+      setTimeout(function() { btn.textContent = 'Now Playing'; }, 2000);
+    })
+    .finally(function() { btn.classList.remove('loading'); });
+}
+</script>
 </body>
 </html>
 """
@@ -373,6 +419,15 @@ PAGE_TEMPLATE = """
 def index() -> str:
     mappings = mapper.get_all_mappings()
     return render_template_string(PAGE_TEMPLATE, mappings=mappings)
+
+
+@app.route("/now-playing")
+def now_playing() -> Response:
+    try:
+        uri = sonos.get_current_track_uri()
+    except Exception:
+        uri = None
+    return jsonify(uri=uri)
 
 
 @app.route("/mappings", methods=["POST"])

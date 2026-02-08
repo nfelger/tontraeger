@@ -1,5 +1,6 @@
 import os
 import tempfile
+from unittest.mock import MagicMock
 
 import pytest
 from flask.testing import FlaskClient
@@ -61,3 +62,60 @@ def test_add_empty_fields_ignored(client: FlaskClient) -> None:
 
     resp = client.get("/")
     assert b"No mappings yet" in resp.data
+
+
+def test_now_playing_returns_uri(client: FlaskClient) -> None:
+    import spotibox.web as web_module
+
+    mock_sonos = MagicMock()
+    mock_sonos.get_current_track_uri.return_value = "x-sonosapi-radio:s25111"
+    original = web_module.sonos
+    web_module.sonos = mock_sonos
+
+    resp = client.get("/now-playing")
+    assert resp.status_code == 200
+    assert resp.json == {"uri": "x-sonosapi-radio:s25111"}
+
+    web_module.sonos = original
+
+
+def test_now_playing_nothing_playing(client: FlaskClient) -> None:
+    import spotibox.web as web_module
+
+    mock_sonos = MagicMock()
+    mock_sonos.get_current_track_uri.return_value = None
+    original = web_module.sonos
+    web_module.sonos = mock_sonos
+
+    resp = client.get("/now-playing")
+    assert resp.status_code == 200
+    assert resp.json == {"uri": None}
+
+    web_module.sonos = original
+
+
+def test_now_playing_error(client: FlaskClient) -> None:
+    import spotibox.web as web_module
+
+    mock_sonos = MagicMock()
+    mock_sonos.get_current_track_uri.side_effect = Exception("Speaker offline")
+    original = web_module.sonos
+    web_module.sonos = mock_sonos
+
+    resp = client.get("/now-playing")
+    assert resp.status_code == 200
+    assert resp.json == {"uri": None}
+
+    web_module.sonos = original
+
+
+def test_now_playing_button_wired_correctly(client: FlaskClient) -> None:
+    """Verify the template wires the button, input, and fetch script together."""
+    html = client.get("/").data.decode()
+    # Button exists and calls the JS function
+    assert 'id="now-playing-btn"' in html
+    assert 'onclick="fetchNowPlaying()"' in html
+    # JS targets the correct input element ID
+    assert "getElementById('media_uri')" in html
+    # JS fetches the right endpoint
+    assert "/now-playing" in html
