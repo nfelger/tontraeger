@@ -41,6 +41,26 @@ class TagMapper:
         finally:
             conn.close()
 
+    def get_all_mappings(self) -> list[tuple[str, str]]:
+        """Returns all (tag_uid, media_uri) mappings."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tag_uid, media_uri FROM tags ORDER BY tag_uid")
+            return cursor.fetchall()
+        finally:
+            conn.close()
+
+    def delete_mapping(self, tag_uid: str) -> None:
+        """Deletes the mapping for the given tag UID."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM tags WHERE tag_uid = ?", (tag_uid,))
+            conn.commit()
+        finally:
+            conn.close()
+
     def get_uri(self, tag_uid: str) -> Optional[str]:
         """
         Retrieves the media URI (or special command) associated with the given tag UID.

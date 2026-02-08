@@ -27,3 +27,34 @@ def test_get_nonexistent_mapping(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     retrieved_uri = mapper.get_uri("nonexistent_tag")
     assert retrieved_uri is None
+
+
+def test_get_all_mappings(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    mapper.insert_mapping("bbb", "uri_b")
+    mapper.insert_mapping("ccc", "uri_c")
+
+    mappings = mapper.get_all_mappings()
+    assert mappings == [("aaa", "uri_a"), ("bbb", "uri_b"), ("ccc", "uri_c")]
+
+
+def test_get_all_mappings_empty(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    assert mapper.get_all_mappings() == []
+
+
+def test_delete_mapping(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("tag1", "uri1")
+    mapper.insert_mapping("tag2", "uri2")
+
+    mapper.delete_mapping("tag1")
+
+    assert mapper.get_uri("tag1") is None
+    assert mapper.get_uri("tag2") == "uri2"
+
+
+def test_delete_nonexistent_mapping(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.delete_mapping("does_not_exist")  # should not raise
