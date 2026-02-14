@@ -29,9 +29,6 @@ SpotiBox bridges the physical and digital worlds by mapping RFID tags to content
 ### On Development Machine
 
 ```bash
-# Clone or download the repository
-cd 2025-02-10-spotibox
-
 # Install uv (optional but recommended)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
