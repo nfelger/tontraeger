@@ -1,4 +1,4 @@
-# SpotiBox: Client-Server Architecture Planning
+# SpotiBox: Client-Server Architecture
 
 ## Current Architecture
 
@@ -10,128 +10,238 @@ Everything runs on a single Raspberry Pi:
 - **Sonos API** (`sonos_api.py`) — speaker discovery and playback control via SoCo
 - **Web UI** (`web.py`) — Flask app for managing mappings
 
-## Proposed Architecture
+## Target Architecture
 
-Split into two components:
+### Design Principle
 
-- **Server** (any machine on the network): Web UI + Sonos control + tag mapping DB + tag submission API
-- **Client** (Raspberry Pi with RFID hardware): Tag reading + forwarding tag UIDs to server
+The critical path — tap card, play music — should work without any network dependency
+beyond the Sonos speaker itself. The server is only needed for managing mappings and is
+not in the playback path.
 
-## Key Questions
+### Server (runs as a container on any machine)
 
-### 1. Communication Protocol
+Tag mapping management and distribution:
 
-How does the client send tag UIDs to the server?
+- **Web UI** (Flask on port 5000) — CRUD for tag-to-URI mappings, unchanged look and feel
+- **Tag Mapper** (SQLite) — source of truth for all mappings
+- **gRPC Sync Service** (port 50051) — streams mapping snapshots to connected clients
+- **Read-only Sonos access** (SoCo) — "Now Playing" feature for the web UI, where the user
+  picks from discovered speakers. No coupling to clients for this.
+- **Unknown tag inbox** — receives reports of unrecognized tag scans from clients, displayed
+  in the web UI to simplify creating new mappings
 
-- **HTTP/REST** — Simplest. Client POSTs `{tag_uid: "..."}` to a server endpoint. Easy to
-  debug, works with existing Flask app. Request-response only, so the server can't push
-  status back without polling.
-- **WebSocket** — Bidirectional. Server can push acknowledgments or "now playing" info back
-  to the client. Useful if the client has an LED or display. More complex.
-- **MQTT** — Pub/sub, common in IoT. Good for multiple clients and loose coupling. Requires
-  a broker (e.g., Mosquitto) as an additional service.
+### Client (Raspberry Pi with RFID hardware)
 
-**Core question:** Does the client need to receive anything back from the server, or is it
-purely fire-and-forget?
+Tag reading, local lookup, and direct Sonos control:
 
-### 2. Debouncing Location
+- **RFID Reader** (MFRC522) — reads tags, unchanged
+- **Local Mapping Cache** — in-memory dict for O(1) lookup, backed by a JSON file on disk
+  for persistence across reboots
+- **Sonos API** (SoCo) — discovers and controls its speaker directly
+- **gRPC Sync Client** — maintains a streaming connection to the server, receives mapping
+  snapshots, reports unknown tags
+- **Debouncing** — 5-second duplicate suppression, client-side
 
-Currently the playback controller debounces duplicate tags (5-second window). Where should
-this live?
+### Data Flow
 
-- **Client-side** — reduces network traffic, but each client debounces independently.
-- **Server-side** — centralized, single source of truth, but every duplicate generates a
-  network request.
-- **Both** — client does coarse filtering, server enforces correctness.
+```
+                        ┌──────────────────────────────────┐
+                        │            SERVER                 │
+                        │                                   │
+                        │  Flask Web UI ◄──► TagMapper      │
+                        │       │              (SQLite)     │
+                        │       │                 │         │
+                        │       │           ┌─────┘         │
+                        │       ▼           ▼               │
+  ┌──────────┐         │  gRPC Sync Service                │
+  │  Browser  │◄──HTTP──│       │                           │
+  └──────────┘         │       │  SoCo (read-only,         │
+                        │       │   "Now Playing")          │
+                        └───────┼───────────────────────────┘
+                          gRPC  │  streaming snapshots
+                          (TLS  │  + unknown tag reports
+                        optional│
+                        ┌───────┼───────────────────────────┐
+                        │       ▼         CLIENT (Pi)       │
+                        │                                   │
+                        │  gRPC Sync Client                 │
+                        │       │                           │
+                        │       ▼                           │
+                        │  Mapping Cache ◄── mappings.json  │
+                        │  (in-memory dict)    (on disk)    │
+                        │       ▲                           │
+                        │       │ lookup                    │
+                        │       │                           │
+                        │  RFID Reader ──► Control Loop     │
+                        │                      │            │
+                        │                      ▼            │
+                        │                  SonosAPI ──► 🔊  │
+                        │                  (SoCo)           │
+                        └───────────────────────────────────┘
+```
 
-**Core question:** Is the traffic volume low enough that server-side-only debouncing is fine?
+### Playback Path (no server dependency)
 
-### 3. Network Reliability and Failure Modes
+1. User taps RFID card on reader
+2. `RFIDReader.read_tag()` returns tag UID
+3. Debounce check (5-second window, client-side)
+4. Lookup in local in-memory dict
+5. If found and URI is "STOP": `SonosAPI.stop_playback()`
+6. If found: `SonosAPI.play_uri(uri)`
+7. If not found: log locally, report to server as unknown tag
 
-A network boundary introduces new failure scenarios:
+### Mapping Sync Path
 
-- What happens when the server is unreachable? Queue and retry, or drop?
-- Should the client provide local feedback (LED, buzzer) for server acknowledgment?
-- What's the timeout for tag submission requests?
-- Should the server expose a health check endpoint?
+1. Client opens `WatchMappings` gRPC server-side stream on startup
+2. Server sends initial `MappingSnapshot` (full set of mappings + version number)
+3. Client replaces in-memory dict and writes `mappings.json` to disk
+4. On any mapping change via the web UI, server pushes a new full snapshot
+5. Client updates dict and disk cache
+6. If stream breaks: client retries with exponential backoff, operates from cache
 
-**Core question:** How does the user know their tap "worked" when there's a network hop
-involved? This matters especially if children are the primary users.
+### Client Boot Sequence
 
-### 4. Client Discovery of the Server
+1. Load `mappings.json` from disk into in-memory dict (if file exists)
+2. Start RFID reading loop immediately (works from cached mappings)
+3. Concurrently, connect to server via mDNS (`spotibox.local:50051`)
+4. On connect: receive fresh snapshot, update dict and disk cache
+5. If server unreachable: continue with cached mappings, keep retrying
 
-How does the client find the server?
+### New Mapping Workflow
 
-- **Static configuration** — hardcoded IP/hostname. Simple but fragile.
-- **mDNS/Avahi** — server advertises as `spotibox.local`. Zero-config, common on home
-  networks.
-- **Broadcast discovery** — client sends discovery packet. Fully automatic but more complex.
+1. User plays something on Sonos (via Spotify app, etc.)
+2. User opens SpotiBox web UI, clicks "Now Playing"
+3. Web UI shows speaker picker (discovered via SoCo on server), fetches current track URI
+4. User taps new RFID card on any client reader
+5. Client reports unknown tag UID to server
+6. Web UI shows the UID in "recently scanned unknown tags"
+7. User creates mapping: tag UID + media URI + name
+8. Server saves to SQLite, pushes snapshot to all clients
+9. Card works immediately on all clients
 
-**Core question:** Is mDNS reliable enough on the home network?
+## Settled Decisions
 
-### 5. Multiple Clients
+| Decision                  | Choice                                         |
+|---------------------------|-------------------------------------------------|
+| Communication protocol    | gRPC                                            |
+| Sync mechanism            | Server-side streaming, full snapshots per change |
+| Sync granularity          | Full snapshot (data is tiny, ~5KB)               |
+| Debouncing                | Client-side, 5-second window                    |
+| Server discovery          | mDNS (`spotibox.local`)                         |
+| Authentication            | None (trusted home network)                     |
+| Tag mappings scope        | Global (shared across all clients)              |
+| "Now Playing"             | Server retains read-only SoCo, user picks speaker |
+| Unknown tag reporting     | Clients report to server, shown in web UI       |
+| Client cache              | In-memory dict + JSON file on disk              |
+| Client speaker config     | Local `.env` file on the Pi                     |
+| Flask + gRPC coexistence  | Same process, separate ports (5000 + 50051)     |
+| Repository structure      | Monorepo                                        |
+| Server deployment         | Container                                       |
 
-Client-server naturally enables multiple readers. Even if there's only one now, the
-architecture should make a conscious choice:
+## gRPC Service Definition
 
-- Can different readers control different Sonos speakers?
-- Does the client identify itself so the server routes to the right speaker?
-- Are tag-to-URI mappings global or per-reader?
-- How does the web UI handle multiple readers?
+```protobuf
+syntax = "proto3";
+package spotibox;
 
-### 6. Security and Authentication
+message TagMapping {
+  string tag_uid = 1;
+  string media_uri = 2;
+  string name = 3;
+}
 
-- Should the server accept tag submissions from any device, or require an API key?
-- The web UI has no authentication — does the network split change the threat model?
-- Is "trusted home network" a sufficient security boundary?
+message MappingSnapshot {
+  uint64 version = 1;
+  repeated TagMapping mappings = 2;
+}
 
-### 7. Latency
+message GetMappingsRequest {
+  uint64 last_known_version = 1;
+}
 
-Users expect near-instant playback after tapping a card. The network hop adds latency:
+message WatchMappingsRequest {
+  uint64 last_known_version = 1;
+}
 
-- Local network HTTP is typically 1-5ms (negligible).
-- Sonos speaker discovery could add seconds if done per-request (currently done at startup).
+message UnknownTagReport {
+  string tag_uid = 1;
+}
 
-**Core question:** Should the server maintain a persistent Sonos connection, or re-discover on
-each request? (Current code discovers at startup, so keeping the server long-running solves
-this.)
+message UnknownTagAck {}
 
-### 8. Packaging and Deployment
+service SpotiBoxSync {
+  // Get current full set of mappings (used on reconnect).
+  rpc GetMappings(GetMappingsRequest) returns (MappingSnapshot);
 
-Currently one package deployed via rsync. The split creates two deployment targets:
+  // Server-side stream: pushes a new MappingSnapshot on each change.
+  rpc WatchMappings(WatchMappingsRequest) returns (stream MappingSnapshot);
 
-- **Server**: Flask + SoCo + SQLite. No hardware deps. Can run on any machine or in Docker.
-- **Client**: MFRC522 + RPi.GPIO + HTTP client. Minimal deps, Pi-only.
+  // Client reports an unrecognized tag scan.
+  rpc ReportUnknownTag(UnknownTagReport) returns (UnknownTagAck);
+}
+```
 
-Questions:
-- Monorepo (e.g., `spotibox-server/` + `spotibox-client/`) or separate repos?
-- Does the server run in Docker?
-- How to keep client and server API-compatible across versions?
+## Monorepo Structure
 
-### 9. API Contract
+```
+spotibox/
+├── proto/
+│   └── spotibox.proto
+├── server/
+│   ├── pyproject.toml          # flask, soco, grpcio, protobuf
+│   ├── Dockerfile
+│   ├── spotibox_server/
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── tag_mapper.py       # SQLite, adds observer/version hooks
+│   │   ├── web.py              # Flask UI, adapted "Now Playing"
+│   │   ├── grpc_server.py      # gRPC service implementation
+│   │   └── main.py             # Starts Flask + gRPC in same process
+│   └── tests/
+├── client/
+│   ├── pyproject.toml          # soco, grpcio, protobuf, mfrc522, RPi.GPIO
+│   ├── spotibox_client/
+│   │   ├── __init__.py
+│   │   ├── config.py           # Reads local .env (speaker name, server addr)
+│   │   ├── rfid_reader.py      # Unchanged
+│   │   ├── sonos_api.py        # Unchanged
+│   │   ├── control.py          # Adapted: uses in-memory cache, not TagMapper
+│   │   ├── cache.py            # In-memory dict + JSON file persistence
+│   │   ├── sync.py             # gRPC client: streaming + unknown tag reports
+│   │   └── main.py             # Starts sync + control loop concurrently
+│   └── tests/
+└── Makefile                    # Proto generation, top-level targets
+```
 
-Two components communicating over a network need a defined contract:
+## Testing Strategy
 
-- Request/response shape for tag submission.
-- Should the server expose tag mapping CRUD as a REST API? (Currently only HTML endpoints.)
-- If the web UI might become a separate SPA in the future, a proper REST API underneath
-  would be needed anyway.
+**Server tests:**
+- `tag_mapper.py` — unchanged, existing tests carry over
+- `web.py` — adapt existing Flask tests, add speaker picker for "Now Playing"
+- `grpc_server.py` — test snapshot generation, stream push on mutation, unknown tag storage
 
-### 10. Testing
+**Client tests:**
+- `cache.py` — test dict operations, JSON persistence, load-on-boot
+- `sync.py` — mock gRPC channel, test snapshot application, reconnect behavior
+- `control.py` — adapt existing tests: use in-memory cache instead of TagMapper mock
+- `sonos_api.py` — existing tests carry over unchanged
 
-The current tests mock hardware at the Python level. The split changes testing:
+**Integration tests:**
+- Spin up server + mock client, verify end-to-end sync
+- Verify mapping change propagates through stream to client cache
 
-- **Client tests**: mock the HTTP call, verify tag UIDs are sent correctly.
-- **Server tests**: mock incoming requests, verify Sonos commands fire.
-- **Integration tests**: need both components (or a harness simulating the other side).
-- Existing `PlaybackController` tests need reworking — the controller's input changes from
-  local reader to HTTP request.
+## Migration Path
 
-### 11. Process Management
+The existing codebase maps cleanly to the new structure:
 
-Currently two processes on the Pi (`make control` + `make web`). In the new architecture:
-
-- **Server**: single process handling tag submission API + web UI.
-- **Client**: single process reading tags and sending HTTP requests.
-- What supervises these? Systemd? Docker? Both?
-- Does the client need a watchdog for automatic restart?
+| Current file          | Server                        | Client                       |
+|-----------------------|-------------------------------|------------------------------|
+| `tag_mapper.py`       | `tag_mapper.py` (add version) | —                            |
+| `web.py`              | `web.py` (adapt Now Playing)  | —                            |
+| `sonos_api.py`        | read-only for Now Playing     | `sonos_api.py` (unchanged)   |
+| `control.py`          | —                             | `control.py` (use cache)     |
+| `rfid_reader.py`      | —                             | `rfid_reader.py` (unchanged) |
+| `config.py`           | `config.py`                   | `config.py`                  |
+| —                     | `grpc_server.py` (new)        | `sync.py` (new)              |
+| —                     | `main.py` (new)               | `cache.py` (new)             |
+| —                     | —                             | `main.py` (new)              |
