@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from spotibox.sonos_api import SonosAPI
+from tontraeger.sonos_api import SonosAPI
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def mock_soco_speaker():
 @pytest.fixture
 def sonos_api(mock_soco_speaker):
     """Create a SonosAPI instance with mocked discovery."""
-    with patch('spotibox.sonos_api.soco.discover') as mock_discover:
+    with patch('tontraeger.sonos_api.soco.discover') as mock_discover:
         mock_discover.return_value = [mock_soco_speaker]
         api = SonosAPI('Living Room')
         yield api
@@ -26,7 +26,7 @@ def sonos_api(mock_soco_speaker):
 
 def test_init_speaker_found(mock_soco_speaker):
     """Test successful speaker discovery."""
-    with patch('spotibox.sonos_api.soco.discover') as mock_discover:
+    with patch('tontraeger.sonos_api.soco.discover') as mock_discover:
         mock_discover.return_value = [mock_soco_speaker]
         api = SonosAPI('Living Room')
         assert api._speaker == mock_soco_speaker
@@ -35,7 +35,7 @@ def test_init_speaker_found(mock_soco_speaker):
 
 def test_init_no_speakers_found():
     """Test exception when no speakers found on network."""
-    with patch('spotibox.sonos_api.soco.discover') as mock_discover:
+    with patch('tontraeger.sonos_api.soco.discover') as mock_discover:
         mock_discover.return_value = None
         with pytest.raises(Exception, match="No Sonos speakers found on network"):
             SonosAPI('Living Room')
@@ -48,7 +48,7 @@ def test_init_speaker_name_not_found():
     mock_speaker2 = MagicMock()
     mock_speaker2.player_name = "Kitchen"
 
-    with patch('spotibox.sonos_api.soco.discover') as mock_discover:
+    with patch('tontraeger.sonos_api.soco.discover') as mock_discover:
         mock_discover.return_value = [mock_speaker1, mock_speaker2]
         with pytest.raises(Exception, match="Speaker 'Living Room' not found"):
             SonosAPI('Living Room')
@@ -69,7 +69,7 @@ def test_play_uri_share_link(sonos_api, mock_soco_speaker):
     """Test playing a share link URL uses ShareLinkPlugin."""
     url = "https://open.example.com/album/abc123"
 
-    with patch('spotibox.sonos_api.ShareLinkPlugin') as mock_plugin_class:
+    with patch('tontraeger.sonos_api.ShareLinkPlugin') as mock_plugin_class:
         mock_plugin = MagicMock()
         mock_plugin_class.return_value = mock_plugin
 

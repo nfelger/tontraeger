@@ -1,10 +1,10 @@
-# SpotiBox
+# tontraeger
 
 A Raspberry Pi-based Sonos controller that uses RFID tags to control music playback. Simply tap an RFID card to play a specific resource on your Sonos speaker or stop playback.
 
 ## Overview
 
-SpotiBox bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different media resource (albums, radio stations, etc.), allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick access to favourite content, or just a fun IoT project.
+tontraeger bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different media resource (albums, radio stations, etc.), allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick access to favourite content, or just a fun IoT project.
 
 ## Features
 
@@ -65,7 +65,7 @@ for s in speakers:
 Run the continuous RFID monitoring service:
 
 ```bash
-python -m spotibox.control
+python -m tontraeger.control
 ```
 
 This starts the main loop that:
@@ -79,7 +79,7 @@ Press `Ctrl+C` to stop.
 
 **Read an RFID tag ID**:
 ```bash
-python -m spotibox.read_rfid_tag_id
+python -m tontraeger.read_rfid_tag_id
 ```
 
 
@@ -89,7 +89,7 @@ Tag-to-URI mappings are stored in `tags.db`. To add or modify mappings, you can:
 
 1. Use the `TagMapper` class in your own scripts:
    ```python
-   from spotibox.tag_mapper import TagMapper
+   from tontraeger.tag_mapper import TagMapper
 
    mapper = TagMapper()
    # Music service share links
@@ -104,7 +104,7 @@ Tag-to-URI mappings are stored in `tags.db`. To add or modify mappings, you can:
 ## Project Structure
 
 ```
-spotibox/
+tontraeger/
 ├── config.py              # Configuration and environment variables
 ├── control.py             # Main controller and async event loop
 ├── tag_mapper.py          # SQLite-backed tag-to-URI mapping
@@ -177,5 +177,5 @@ Run quality checks:
 ```bash
 ruff check .        # Lint code
 ruff format .       # Format code
-mypy spotibox/      # Type checking
+mypy tontraeger/      # Type checking
 ```

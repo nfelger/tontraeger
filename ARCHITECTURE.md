@@ -1,4 +1,4 @@
-# SpotiBox: Client-Server Architecture
+# tontraeger: Client-Server Architecture
 
 ## Current Architecture
 
@@ -110,14 +110,14 @@ and survives server restarts — no version counter needed.
 
 1. Load `mappings.json` from disk into in-memory dict (if file exists)
 2. Start RFID reading loop immediately (works from cached mappings)
-3. Concurrently, start polling `http://spotibox.local:5000/api/mappings`
+3. Concurrently, start polling `http://tontraeger.local:5000/api/mappings`
 4. On first successful poll: update dict and disk cache
 5. If server unreachable: continue with cached mappings, keep polling
 
 ### New Mapping Workflow
 
 1. User plays something on Sonos (via Spotify app, etc.)
-2. User opens SpotiBox web UI, clicks "Now Playing"
+2. User opens tontraeger web UI, clicks "Now Playing"
 3. Web UI shows speaker picker (discovered via SoCo on server), fetches current track URI
 4. User taps new RFID card on any client reader
 5. Client reports unknown tag UID to server via `POST /api/unknown-tags`
@@ -140,7 +140,7 @@ mapping is most likely being created.
 | Sync granularity          | Full snapshot (data is tiny, ~5KB)                       |
 | Change detection          | Content hash as ETag (stateless, survives server restart) |
 | Debouncing                | Client-side, 5-second window                             |
-| Server discovery          | mDNS (`spotibox.local`)                                  |
+| Server discovery          | mDNS (`tontraeger.local`)                                  |
 | Authentication            | None (trusted home network)                              |
 | Tag mappings scope        | Global (shared across all clients)                       |
 | "Now Playing"             | Server retains read-only SoCo, user picks speaker        |
@@ -195,11 +195,11 @@ GET  /now-playing?speaker=X     → JSON: current track URI (add speaker param)
 ## Monorepo Structure
 
 ```
-spotibox/
+tontraeger/
 ├── server/
 │   ├── pyproject.toml          # flask, soco, python-dotenv
 │   ├── Dockerfile
-│   ├── spotibox_server/
+│   ├── tontraeger_server/
 │   │   ├── __init__.py
 │   │   ├── config.py
 │   │   ├── tag_mapper.py       # SQLite, adds content_hash() method
@@ -208,7 +208,7 @@ spotibox/
 │   └── tests/
 ├── client/
 │   ├── pyproject.toml          # soco, requests, mfrc522, RPi.GPIO, python-dotenv
-│   ├── spotibox_client/
+│   ├── tontraeger_client/
 │   │   ├── __init__.py
 │   │   ├── config.py           # Reads local .env (speaker name, server addr)
 │   │   ├── rfid_reader.py      # Unchanged

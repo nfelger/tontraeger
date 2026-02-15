@@ -1,5 +1,5 @@
 [project]
-name = "SpotiBox"
+name = "tontraeger"
 version = "0.1.0"
 description = "Control Sonos with RFID tags"
 readme = "README.md"

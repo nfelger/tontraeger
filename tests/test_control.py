@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from typing import Optional
-from spotibox.control import PlaybackController, STOP_COMMAND, main_loop
+from tontraeger.control import PlaybackController, STOP_COMMAND, main_loop
 
 # Dummy implementations for testing purposes.
 

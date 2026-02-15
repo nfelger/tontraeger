@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 from flask.testing import FlaskClient
 
-from spotibox.tag_mapper import TagMapper
-from spotibox.web import app
+from tontraeger.tag_mapper import TagMapper
+from tontraeger.web import app
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def client() -> FlaskClient:
     test_mapper = TagMapper(db_path=path)
 
     # Patch the module-level mapper used by the routes.
-    import spotibox.web as web_module
+    import tontraeger.web as web_module
     original = web_module.mapper
     web_module.mapper = test_mapper
 
@@ -66,7 +66,7 @@ def test_add_empty_fields_ignored(client: FlaskClient) -> None:
 
 
 def test_now_playing_returns_uri(client: FlaskClient) -> None:
-    import spotibox.web as web_module
+    import tontraeger.web as web_module
 
     mock_sonos = MagicMock()
     mock_sonos.get_current_track_uri.return_value = "x-sonosapi-radio:s25111"
@@ -81,7 +81,7 @@ def test_now_playing_returns_uri(client: FlaskClient) -> None:
 
 
 def test_now_playing_nothing_playing(client: FlaskClient) -> None:
-    import spotibox.web as web_module
+    import tontraeger.web as web_module
 
     mock_sonos = MagicMock()
     mock_sonos.get_current_track_uri.return_value = None
@@ -96,7 +96,7 @@ def test_now_playing_nothing_playing(client: FlaskClient) -> None:
 
 
 def test_now_playing_error(client: FlaskClient) -> None:
-    import spotibox.web as web_module
+    import tontraeger.web as web_module
 
     mock_sonos = MagicMock()
     mock_sonos.get_current_track_uri.side_effect = Exception("Speaker offline")
