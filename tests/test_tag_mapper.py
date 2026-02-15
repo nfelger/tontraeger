@@ -1,7 +1,7 @@
 import os
 import tempfile
 import pytest
-from spotibox.tag_mapper import TagMapper
+from tontraeger.tag_mapper import TagMapper
 
 @pytest.fixture
 def temp_db() -> str:

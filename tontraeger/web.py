@@ -4,9 +4,9 @@ from flask import Flask, flash, jsonify, redirect, render_template_string, reque
 from markupsafe import escape
 from werkzeug.wrappers import Response
 
-from spotibox.config import SONOS_SPEAKER_NAME
-from spotibox.sonos_api import SonosAPI
-from spotibox.tag_mapper import TagMapper
+from tontraeger.config import SONOS_SPEAKER_NAME
+from tontraeger.sonos_api import SonosAPI
+from tontraeger.tag_mapper import TagMapper
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
@@ -20,7 +20,7 @@ PAGE_TEMPLATE = """
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SpotiBox</title>
+<title>Tontraeger</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -326,7 +326,7 @@ PAGE_TEMPLATE = """
 <div class="container">
 
   <header>
-    <h1>Spoti<span>Box</span></h1>
+    <h1>Tontraeger</h1>
     <div class="subtitle">Tag &amp; Groove Manager</div>
   </header>
 
@@ -390,7 +390,7 @@ PAGE_TEMPLATE = """
     <div class="empty">No mappings yet &mdash; scan a tag and add it above.</div>
   {% endif %}
 
-  <footer>SpotiBox &middot; Vinyl In, Sound Out</footer>
+  <footer>Tontraeger &middot; Vinyl In, Sound Out</footer>
 
 </div>
 <script>

@@ -1,4 +1,4 @@
-from spotibox.rfid_reader import RFIDReader
+from tontraeger.rfid_reader import RFIDReader
 reader = RFIDReader()
 
 try:

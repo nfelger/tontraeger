@@ -17,18 +17,18 @@ format: ## Format code
 	uv run ruff format .
 
 typecheck: ## Type check code
-	uv run mypy spotibox/
+	uv run mypy tontraeger/
 
 check: lint typecheck test ## Run all checks (lint, typecheck, test)
 
 web: ## Start Flask web UI
-	uv run python spotibox/web.py
+	uv run python tontraeger/web.py
 
 control: ## Start RFID control loop
-	uv run python -m spotibox.control
+	uv run python -m tontraeger.control
 
 read-tag: ## Read an RFID tag ID
-	uv run python -m spotibox.read_rfid_tag_id
+	uv run python -m tontraeger.read_rfid_tag_id
 
 sync: ## Deploy to Pi via rsync
 	./sync_to_pi.sh $(SYNC_DESTINATION)

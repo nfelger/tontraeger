@@ -2,9 +2,9 @@ import asyncio
 import time
 from typing import Optional, Protocol
 
-from spotibox.config import SONOS_SPEAKER_NAME
-from spotibox.tag_mapper import TagMapper
-from spotibox.sonos_api import SonosAPI
+from tontraeger.config import SONOS_SPEAKER_NAME
+from tontraeger.tag_mapper import TagMapper
+from tontraeger.sonos_api import SonosAPI
 
 
 class TagReader(Protocol):
@@ -80,7 +80,7 @@ async def main_loop(reader: TagReader, controller: PlaybackController, max_itera
         reader.cleanup()
 
 def main() -> None:
-    from spotibox.rfid_reader import RFIDReader
+    from tontraeger.rfid_reader import RFIDReader
 
     sonos_api = SonosAPI(SONOS_SPEAKER_NAME)
     mapper = TagMapper()

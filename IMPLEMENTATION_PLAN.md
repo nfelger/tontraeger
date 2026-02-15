@@ -1,4 +1,4 @@
-# SpotiBox: Implementation Plan
+# Tontraeger: Implementation Plan
 
 High-level plan for migrating from the current single-Pi monolith to the client-server
 architecture described in ARCHITECTURE.md.
@@ -15,7 +15,7 @@ architecture described in ARCHITECTURE.md.
 
 ## Phase 1: Monorepo Restructure
 
-**Goal:** Split the single `spotibox/` package into `server/` and `client/` directories with
+**Goal:** Split the single `tontraeger/` package into `server/` and `client/` directories with
 separate `pyproject.toml` files, while keeping the current single-Pi behavior working.
 
 ### Step 1.1: Create directory structure
@@ -23,14 +23,14 @@ separate `pyproject.toml` files, while keeping the current single-Pi behavior wo
 Create the monorepo layout:
 
 ```
-spotibox/
+tontraeger/
 ├── server/
 │   ├── pyproject.toml
-│   └── spotibox_server/
+│   └── tontraeger_server/
 │       └── __init__.py
 ├── client/
 │   ├── pyproject.toml
-│   └── spotibox_client/
+│   └── tontraeger_client/
 │       └── __init__.py
 └── Makefile
 ```
@@ -39,12 +39,12 @@ spotibox/
 
 Copy files to their new homes:
 
-- `spotibox/tag_mapper.py` → `server/spotibox_server/tag_mapper.py`
-- `spotibox/web.py` → `server/spotibox_server/web.py`
-- `spotibox/sonos_api.py` → `server/spotibox_server/sonos_api.py` (for Now Playing)
-- `spotibox/config.py` → `server/spotibox_server/config.py`
+- `tontraeger/tag_mapper.py` → `server/tontraeger_server/tag_mapper.py`
+- `tontraeger/web.py` → `server/tontraeger_server/web.py`
+- `tontraeger/sonos_api.py` → `server/tontraeger_server/sonos_api.py` (for Now Playing)
+- `tontraeger/config.py` → `server/tontraeger_server/config.py`
 
-Fix internal imports (`from spotibox.X` → `from spotibox_server.X`).
+Fix internal imports (`from tontraeger.X` → `from tontraeger_server.X`).
 
 Create `server/pyproject.toml` with dependencies: `flask`, `soco`, `python-dotenv`.
 
@@ -52,12 +52,12 @@ Create `server/pyproject.toml` with dependencies: `flask`, `soco`, `python-doten
 
 Copy files to their new homes:
 
-- `spotibox/rfid_reader.py` → `client/spotibox_client/rfid_reader.py`
-- `spotibox/sonos_api.py` → `client/spotibox_client/sonos_api.py`
-- `spotibox/control.py` → `client/spotibox_client/control.py`
-- `spotibox/config.py` → `client/spotibox_client/config.py`
+- `tontraeger/rfid_reader.py` → `client/tontraeger_client/rfid_reader.py`
+- `tontraeger/sonos_api.py` → `client/tontraeger_client/sonos_api.py`
+- `tontraeger/control.py` → `client/tontraeger_client/control.py`
+- `tontraeger/config.py` → `client/tontraeger_client/config.py`
 
-Fix internal imports (`from spotibox.X` → `from spotibox_client.X`).
+Fix internal imports (`from tontraeger.X` → `from tontraeger_client.X`).
 
 Create `client/pyproject.toml` with dependencies: `soco`, `requests`, `python-dotenv`,
 `mfrc522` (linux), `RPi.GPIO` (linux).
@@ -204,7 +204,7 @@ loop works with a cache.
 **Goal:** Wire everything together in the client's `main.py` so the client runs as a single
 process with concurrent RFID reading and HTTP sync.
 
-### Step 4.1: Implement `client/spotibox_client/main.py`
+### Step 4.1: Implement `client/tontraeger_client/main.py`
 
 The entrypoint:
 
@@ -222,12 +222,12 @@ The entrypoint:
 Use `asyncio` to run both loops concurrently. The sync poll can run in an executor thread
 (since `requests` is blocking) or use `aiohttp` — prefer the simpler option.
 
-### Step 4.2: Implement `server/spotibox_server/main.py`
+### Step 4.2: Implement `server/tontraeger_server/main.py`
 
 Simple entrypoint that starts Flask:
 
 ```python
-from spotibox_server.web import app
+from tontraeger_server.web import app
 
 def main():
     app.run(host="0.0.0.0", port=5000)
@@ -254,7 +254,7 @@ COPY server/ .
 RUN pip install .
 EXPOSE 5000
 VOLUME /app/data
-CMD ["python", "-m", "spotibox_server.main"]
+CMD ["python", "-m", "tontraeger_server.main"]
 ```
 
 SQLite database (`tags.db`) lives on a mounted volume so it survives container recreation.
@@ -267,17 +267,17 @@ Create a systemd service file for the client:
 
 ```ini
 [Unit]
-Description=SpotiBox Client
+Description=Tontraeger Client
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 -m spotibox_client.main
-WorkingDirectory=/home/pi/spotibox
+ExecStart=/usr/bin/python3 -m tontraeger_client.main
+WorkingDirectory=/home/pi/tontraeger
 Restart=always
 RestartSec=5
 Environment=SONOS_SPEAKER_NAME=Wohnzimmer
-Environment=SPOTIBOX_SERVER=http://spotibox.local:5000
+Environment=TONTRAEGER_SERVER=http://tontraeger.local:5000
 
 [Install]
 WantedBy=multi-user.target
@@ -305,9 +305,9 @@ workflow works: manage mappings in web UI, tap cards on Pi, music plays.
 
 **Goal:** Remove the old single-Pi code and finalize the migration.
 
-### Step 6.1: Remove old `spotibox/` package
+### Step 6.1: Remove old `tontraeger/` package
 
-Once the server and client are running independently, remove the original `spotibox/`
+Once the server and client are running independently, remove the original `tontraeger/`
 directory and its `tests/` directory. Remove the old top-level `pyproject.toml`.
 
 ### Step 6.2: Update documentation
