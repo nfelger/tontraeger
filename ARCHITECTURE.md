@@ -1,4 +1,4 @@
-# Tontraeger: Client-Server Architecture
+# tontraeger: Client-Server Architecture
 
 ## Current Architecture
 
@@ -117,7 +117,7 @@ and survives server restarts — no version counter needed.
 ### New Mapping Workflow
 
 1. User plays something on Sonos (via Spotify app, etc.)
-2. User opens Tontraeger web UI, clicks "Now Playing"
+2. User opens tontraeger web UI, clicks "Now Playing"
 3. Web UI shows speaker picker (discovered via SoCo on server), fetches current track URI
 4. User taps new RFID card on any client reader
 5. Client reports unknown tag UID to server via `POST /api/unknown-tags`

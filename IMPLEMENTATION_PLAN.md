@@ -1,4 +1,4 @@
-# Tontraeger: Implementation Plan
+# tontraeger: Implementation Plan
 
 High-level plan for migrating from the current single-Pi monolith to the client-server
 architecture described in ARCHITECTURE.md.
@@ -267,7 +267,7 @@ Create a systemd service file for the client:
 
 ```ini
 [Unit]
-Description=Tontraeger Client
+Description=tontraeger Client
 After=network-online.target
 Wants=network-online.target
 
@@ -277,7 +277,7 @@ WorkingDirectory=/home/pi/tontraeger
 Restart=always
 RestartSec=5
 Environment=SONOS_SPEAKER_NAME=Wohnzimmer
-Environment=TONTRAEGER_SERVER=http://tontraeger.local:5000
+Environment=tontraeger_SERVER=http://tontraeger.local:5000
 
 [Install]
 WantedBy=multi-user.target

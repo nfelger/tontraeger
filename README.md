@@ -1,10 +1,10 @@
-# Tontraeger
+# tontraeger
 
 A Raspberry Pi-based Sonos controller that uses RFID tags to control music playback. Simply tap an RFID card to play a specific resource on your Sonos speaker or stop playback.
 
 ## Overview
 
-Tontraeger bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different media resource (albums, radio stations, etc.), allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick access to favourite content, or just a fun IoT project.
+tontraeger bridges the physical and digital worlds by mapping RFID tags to content on Sonos speakers. Each tag can be associated with a different media resource (albums, radio stations, etc.), allowing for a tangible, touch-based music control experience. Perfect for creating a music box for kids, quick access to favourite content, or just a fun IoT project.
 
 ## Features
 
