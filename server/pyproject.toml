@@ -1,0 +1,30 @@
+[project]
+name = "tontraeger-server"
+version = "0.1.0"
+description = "tontraeger server — tag mapping management and web UI"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+    "python-dotenv>=1.0.1",
+    "soco>=0.30.0",
+]
+
+[tool.ruff]
+lint.select = ["E", "F", "B", "ANN"]
+lint.ignore = ["E501"]
+line-length = 100
+
+[tool.mypy]
+python_version = 3.11
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15.0",
+    "pytest>=8.3.4",
+    "ruff>=0.9.6",
+]
