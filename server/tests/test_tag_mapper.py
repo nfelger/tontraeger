@@ -58,3 +58,60 @@ def test_delete_mapping(temp_db: str) -> None:
 def test_delete_nonexistent_mapping(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     mapper.delete_mapping("does_not_exist")  # should not raise
+
+
+def test_content_hash_empty(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    h = mapper.content_hash()
+    assert isinstance(h, str)
+    assert len(h) == 64
+
+
+def test_content_hash_deterministic(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a", "Alpha")
+    mapper.insert_mapping("bbb", "uri_b")
+    assert mapper.content_hash() == mapper.content_hash()
+
+
+def test_content_hash_changes_on_insert(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    h1 = mapper.content_hash()
+    mapper.insert_mapping("aaa", "uri_a")
+    h2 = mapper.content_hash()
+    assert h1 != h2
+
+
+def test_content_hash_changes_on_delete(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    h1 = mapper.content_hash()
+    mapper.delete_mapping("aaa")
+    h2 = mapper.content_hash()
+    assert h1 != h2
+
+
+def test_content_hash_changes_on_update(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    h1 = mapper.content_hash()
+    mapper.insert_mapping("aaa", "uri_b")
+    h2 = mapper.content_hash()
+    assert h1 != h2
+
+
+def test_content_hash_independent_of_insertion_order(temp_db: str) -> None:
+    mapper1 = TagMapper(db_path=temp_db)
+    mapper1.insert_mapping("bbb", "uri_b")
+    mapper1.insert_mapping("aaa", "uri_a")
+    h1 = mapper1.content_hash()
+
+    fd2, path2 = tempfile.mkstemp(suffix=".db")
+    os.close(fd2)
+    mapper2 = TagMapper(db_path=path2)
+    mapper2.insert_mapping("aaa", "uri_a")
+    mapper2.insert_mapping("bbb", "uri_b")
+    h2 = mapper2.content_hash()
+    os.remove(path2)
+
+    assert h1 == h2
