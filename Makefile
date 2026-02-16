@@ -14,7 +14,7 @@ help: ## Show available targets
 test: test-server test-client ## Run all tests
 
 test-server: ## Run server tests
-	cd server && uv run pytest
+	$(MAKE) -C server test
 
 test-client: ## Run client tests
 	cd client && uv run pytest
@@ -26,13 +26,13 @@ format: ## Format code
 	uv run ruff format server/ client/
 
 typecheck: ## Type check code
-	cd server && uv run mypy tontraeger_server/
+	$(MAKE) -C server typecheck
 	cd client && uv run mypy tontraeger_client/
 
 check: lint typecheck test ## Run all checks (lint, typecheck, test)
 
 web: ## Start Flask web UI (server)
-	cd server && uv run python -m tontraeger_server.main
+	$(MAKE) -C server run
 
 control: ## Start client (RFID reader + sync)
 	cd client && uv run python -m tontraeger_client.main
