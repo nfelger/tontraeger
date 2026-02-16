@@ -2,11 +2,8 @@ ifneq (,$(wildcard .env))
     include .env
 endif
 
-PI_HOST                ?= pi@tontraeger.local
-PI_DIR                 ?= /home/pi/tontraeger
-SONOS_SPEAKER_NAME     ?= Wohnzimmer
-TONTRAEGER_SERVER      ?= http://tontraeger.local:5000
-TONTRAEGER_CACHE_PATH  ?= /home/pi/tontraeger/client/mappings.json
+PI_HOST ?= pi@tontraeger.local
+PI_DIR  ?= /home/pi/tontraeger
 
 .PHONY: help test test-server test-client lint format typecheck check web control read-tag \
         docker-build docker-up docker-down sync-client run-server install-client-service
@@ -64,8 +61,6 @@ sync-client: ## Sync client code to Pi via rsync and restart service
 		client/ $(PI_HOST):$(PI_DIR)/client/
 	ssh $(PI_HOST) 'sudo systemctl restart tontraeger-client'
 
-install-client-service: ## Generate service file from .env and install it on the Pi
-	printf '[Unit]\nDescription=tontraeger Client (RFID reader + Sonos playback)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nExecStart=/usr/bin/make -C %s control\nWorkingDirectory=%s/client\nRestart=always\nRestartSec=5\nEnvironment=SONOS_SPEAKER_NAME=%s\nEnvironment=TONTRAEGER_SERVER=%s\nEnvironment=TONTRAEGER_CACHE_PATH=%s\n\n[Install]\nWantedBy=multi-user.target\n' \
-		'$(PI_DIR)' '$(PI_DIR)' '$(SONOS_SPEAKER_NAME)' '$(TONTRAEGER_SERVER)' '$(TONTRAEGER_CACHE_PATH)' \
-		| ssh $(PI_HOST) 'sudo tee /etc/systemd/system/tontraeger-client.service > /dev/null'
-	ssh $(PI_HOST) 'sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client'
+install-client-service: ## Install the systemd service file on the Pi
+	scp client/tontraeger-client.service $(PI_HOST):/tmp/tontraeger-client.service
+	ssh $(PI_HOST) 'sudo mv /tmp/tontraeger-client.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client'
