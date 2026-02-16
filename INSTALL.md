@@ -11,20 +11,27 @@ tontraeger uses a client-server architecture:
 ### Prerequisites
 - Docker and Docker Compose
 
+### Configure
+
+Copy `.env.sample` to `.env` and adjust values:
+
+```bash
+cp .env.sample .env
+```
+
+Key server variable:
+- `SONOS_SPEAKER_NAME` — default Sonos speaker name (default: `Wohnzimmer`)
+
 ### Start the server
 
 ```bash
-# From the repository root:
-make docker-up
-
-# Or manually:
-docker compose up -d
+make run-server
 ```
 
-The server listens on port 5000. The SQLite database is persisted in a Docker volume.
+This builds the Docker image and starts the server. The server listens on port 5000.
+The SQLite database is persisted in a Docker volume.
 
-Configure via environment variables (or a `.env` file in the repo root):
-- `SONOS_SPEAKER_NAME` — default Sonos speaker name (default: `Wohnzimmer`)
+To stop: `make docker-down`
 
 ### Migrating an existing `tags.db`
 
@@ -38,7 +45,7 @@ docker volume inspect tontraeger_server-data --format '{{ .Mountpoint }}'
 sudo cp tags.db "$(docker volume inspect tontraeger_server-data --format '{{ .Mountpoint }}')/tags.db"
 
 # Restart the server to pick up the database:
-make docker-down && make docker-up
+make docker-down && make run-server
 ```
 
 No schema changes are needed — the existing database works as-is.
@@ -57,46 +64,45 @@ sudo raspi-config   # → Interface Options → SPI → Enable
 sudo reboot
 
 # Install Python headers:
-sudo apt update && sudo apt install python3.11-dev
+sudo apt update && sudo apt install python3.11-dev make
 
 # Install uv:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### Deploy the client
+### Configure and sync the client
+
+Edit `.env` on your development machine with the client variables:
+- `PI_HOST` — SSH target for the Pi (default: `pi@tontraeger.local`)
+- `PI_DIR` — directory on the Pi (default: `/home/pi/tontraeger`)
+- `TONTRAEGER_SERVER` — server URL (default: `http://tontraeger.local:5000`)
+- `SONOS_SPEAKER_NAME` — Sonos speaker to play on (default: `Wohnzimmer`)
+- `TONTRAEGER_CACHE_PATH` — local mapping cache on the Pi
+
+Then sync the client code to the Pi:
 
 ```bash
-# From your development machine:
-make deploy-client
-
-# Or manually:
-rsync -av --filter=':- .gitignore' --exclude='tests/' \
-    client/ pi@tontraeger.local:/home/pi/tontraeger/client/
+make sync-client
 ```
 
 ### Install the systemd service
 
-On the Pi:
+From your development machine, run:
 
 ```bash
-# Copy the service file:
-sudo cp /home/pi/tontraeger/client/tontraeger-client.service /etc/systemd/system/
-
-# Edit environment variables if needed:
-sudo systemctl edit tontraeger-client
-# Override SONOS_SPEAKER_NAME, TONTRAEGER_SERVER, etc.
-
-# Enable and start:
-sudo systemctl daemon-reload
-sudo systemctl enable tontraeger-client
-sudo systemctl start tontraeger-client
-
-# Check status:
-sudo systemctl status tontraeger-client
-journalctl -u tontraeger-client -f
+make install-client-service
 ```
 
-### Client environment variables
-- `SONOS_SPEAKER_NAME` — Sonos speaker to play on (default: `Wohnzimmer`)
-- `TONTRAEGER_SERVER` — Server URL (default: `http://tontraeger.local:5000`)
-- `TONTRAEGER_CACHE_PATH` — Local mapping cache file (default: `mappings.json`)
+This generates the service file with values from `.env`, installs it on the Pi,
+and enables it to start on boot. To start it immediately:
+
+```bash
+ssh pi@tontraeger.local 'sudo systemctl start tontraeger-client'
+```
+
+To check status:
+
+```bash
+ssh pi@tontraeger.local 'sudo systemctl status tontraeger-client'
+ssh pi@tontraeger.local 'journalctl -u tontraeger-client -f'
+```

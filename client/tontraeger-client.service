@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 -m tontraeger_client.main
+ExecStart=/usr/bin/make -C /home/pi/tontraeger control
 WorkingDirectory=/home/pi/tontraeger/client
 Restart=always
 RestartSec=5
