@@ -56,11 +56,13 @@ run-server: ## Rebuild image and restart server via docker compose
 
 # ── Client (Pi) ──────────────────────────────────────────
 
-sync-client: ## Sync client code to Pi via rsync and restart service
+sync-client: ## Sync client code + .env to Pi via rsync and restart service
 	rsync -av --filter=':- .gitignore' --exclude='tests/' \
 		client/ $(PI_HOST):$(PI_DIR)/client/
+	scp .env $(PI_HOST):$(PI_DIR)/.env
 	ssh $(PI_HOST) 'sudo systemctl restart tontraeger-client'
 
 install-client-service: ## Install the systemd service file on the Pi
-	scp client/tontraeger-client.service $(PI_HOST):/tmp/tontraeger-client.service
-	ssh $(PI_HOST) 'sudo mv /tmp/tontraeger-client.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client'
+	sed 's|__PI_DIR__|$(PI_DIR)|g' client/tontraeger-client.service \
+		| ssh $(PI_HOST) 'sudo tee /etc/systemd/system/tontraeger-client.service > /dev/null'
+	ssh $(PI_HOST) 'sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client'

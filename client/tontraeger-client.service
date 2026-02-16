@@ -4,13 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/make -C /home/pi/tontraeger control
-WorkingDirectory=/home/pi/tontraeger/client
+ExecStart=/usr/bin/make -C __PI_DIR__ control
+WorkingDirectory=__PI_DIR__/client
 Restart=always
 RestartSec=5
-Environment=SONOS_SPEAKER_NAME=Wohnzimmer
-Environment=TONTRAEGER_SERVER=http://tontraeger.local:5000
-Environment=TONTRAEGER_CACHE_PATH=/home/pi/tontraeger/client/mappings.json
+EnvironmentFile=__PI_DIR__/.env
 
 [Install]
 WantedBy=multi-user.target
