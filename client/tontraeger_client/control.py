@@ -1,10 +1,13 @@
 import asyncio
+import logging
 import time
 from typing import Optional, Protocol
 
-from tontraeger_client.config import SONOS_SPEAKER_NAME
-from tontraeger_client.tag_mapper import TagMapper
+from tontraeger_client.cache import MappingCache
 from tontraeger_client.sonos_api import SonosAPI
+from tontraeger_client.sync import MappingSync
+
+logger = logging.getLogger(__name__)
 
 
 class TagReader(Protocol):
@@ -15,40 +18,46 @@ class TagReader(Protocol):
 STOP_COMMAND: str = "STOP"
 
 class PlaybackController:
-    def __init__(self, sonos_api: SonosAPI, mapper: TagMapper) -> None:
+    def __init__(
+        self,
+        sonos_api: SonosAPI,
+        cache: MappingCache,
+        sync: Optional[MappingSync] = None,
+    ) -> None:
         self.sonos_api = sonos_api
-        self.mapper = mapper
+        self.cache = cache
+        self.sync = sync
 
     def handle_tag(self, tag_uid: str) -> None:
+        """Given a tag UID, look up the URI in the local cache.
+
+        - If found and URI is STOP: stop playback.
+        - If found: play the URI.
+        - If not found: log and report to server as unknown tag.
         """
-        Given a tag UID, retrieves the associated media URI from the mapper.
-        - If the returned URI matches the special STOP_COMMAND, it stops playback.
-        - Otherwise, it starts playback of the given URI.
-        Raises:
-            Exception: if no mapping exists for the tag.
-        """
-        uri = self.mapper.get_uri(tag_uid)
+        uri = self.cache.get_uri(tag_uid)
         if uri is None:
-            raise Exception(f"No mapping found for tag: {tag_uid}")
+            logger.info("Unknown tag: %s", tag_uid)
+            if self.sync is not None:
+                self.sync.report_unknown_tag(tag_uid)
+            return
         if uri.upper() == STOP_COMMAND:
             self.sonos_api.stop_playback()
         else:
             self.sonos_api.play_uri(uri)
 
 async def process_tag(tag: str, controller: PlaybackController) -> None:
-    """
-    Asynchronously processes a tag by invoking the controller.
+    """Asynchronously processes a tag by invoking the controller.
     Errors are caught and logged.
     """
     try:
         controller.handle_tag(tag)
-        print(f"Processed tag {tag} successfully.")
+        logger.info("Processed tag %s successfully.", tag)
     except Exception as e:
-        print(f"Error processing tag {tag}: {e}")
+        logger.error("Error processing tag %s: %s", tag, e)
 
 async def main_loop(reader: TagReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
-    """
-    Continuously listens for RFID tags. Optionally stops after max_iterations (useful for testing).
+    """Continuously listens for RFID tags. Optionally stops after max_iterations (useful for testing).
     A debouncing mechanism is implemented to ignore duplicate reads of the same tag within a short interval.
     The blocking reader.read_tag() call is run in an executor so the event loop remains responsive.
     """
@@ -63,32 +72,17 @@ async def main_loop(reader: TagReader, controller: PlaybackController, max_itera
             tag = await loop.run_in_executor(None, reader.read_tag)
             now = time.time()
             if tag == last_tag and (now - last_tag_time) < DEBOUNCE_INTERVAL:
-                print(f"Ignoring duplicate tag {tag} (debounce active)")
+                logger.debug("Ignoring duplicate tag %s (debounce active)", tag)
                 continue
 
             last_tag = tag
             last_tag_time = now
 
-            # Process the new tag concurrently.
             asyncio.create_task(process_tag(tag, controller))
             iteration += 1
             if max_iterations is not None and iteration >= max_iterations:
                 break
     except KeyboardInterrupt:
-        print("Shutting down.")
+        logger.info("Shutting down.")
     finally:
         reader.cleanup()
-
-def main() -> None:
-    from tontraeger_client.rfid_reader import RFIDReader
-
-    sonos_api = SonosAPI(SONOS_SPEAKER_NAME)
-    mapper = TagMapper()
-    controller = PlaybackController(sonos_api, mapper)
-    reader = RFIDReader()
-
-    # Run the asynchronous main loop.
-    asyncio.run(main_loop(reader, controller))
-
-if __name__ == "__main__":
-    main()
