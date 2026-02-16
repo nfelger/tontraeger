@@ -27,11 +27,11 @@ typecheck: ## Type check code
 
 check: lint typecheck test ## Run all checks (lint, typecheck, test)
 
-web: ## Start Flask web UI
-	cd server && uv run python -m tontraeger_server.web
+web: ## Start Flask web UI (server)
+	cd server && uv run python -m tontraeger_server.main
 
-control: ## Start RFID control loop
-	cd client && uv run python -m tontraeger_client.control
+control: ## Start client (RFID reader + sync)
+	cd client && uv run python -m tontraeger_client.main
 
 read-tag: ## Read an RFID tag ID
 	cd client && uv run python -m tontraeger_client.read_rfid_tag_id
