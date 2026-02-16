@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sqlite3
 from typing import Optional
 
@@ -84,3 +86,12 @@ class TagMapper:
             return None
         finally:
             conn.close()
+
+    def content_hash(self) -> str:
+        """SHA-256 of all mappings, for use as ETag."""
+        mappings = self.get_all_mappings()
+        serialized = json.dumps(
+            [{"tag_uid": t, "media_uri": u, "name": n} for t, u, n in mappings],
+            sort_keys=True,
+        )
+        return hashlib.sha256(serialized.encode()).hexdigest()

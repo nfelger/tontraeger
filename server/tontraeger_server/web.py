@@ -1,19 +1,57 @@
 import secrets
+from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Optional
 
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
 from markupsafe import escape
 from werkzeug.wrappers import Response
 
+import soco
+
 from tontraeger_server.config import SONOS_SPEAKER_NAME
 from tontraeger_server.sonos_api import SonosAPI
 from tontraeger_server.tag_mapper import TagMapper
+
+
+class UnknownTagInbox:
+    """In-memory store for unknown tag scans. Max 20 entries, FIFO eviction."""
+
+    MAX_SIZE = 20
+
+    def __init__(self) -> None:
+        self._tags: OrderedDict[str, dict] = OrderedDict()
+
+    def report(self, tag_uid: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        if tag_uid in self._tags:
+            entry = self._tags[tag_uid]
+            entry["last_seen"] = now
+            entry["scan_count"] += 1
+            self._tags.move_to_end(tag_uid)
+        else:
+            if len(self._tags) >= self.MAX_SIZE:
+                self._tags.popitem(last=False)
+            self._tags[tag_uid] = {
+                "tag_uid": tag_uid,
+                "first_seen": now,
+                "last_seen": now,
+                "scan_count": 1,
+            }
+
+    def get_all(self) -> list[dict]:
+        return list(self._tags.values())
+
+    def clear(self) -> None:
+        self._tags.clear()
+
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
 mapper = TagMapper()
 sonos: Optional[SonosAPI] = None
+unknown_tags = UnknownTagInbox()
 
 
 def get_sonos() -> Optional[SonosAPI]:
@@ -32,6 +70,8 @@ PAGE_TEMPLATE = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tontraeger</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -140,7 +180,7 @@ PAGE_TEMPLATE = """
     margin-bottom: 0.3rem;
   }
 
-  .form-field input {
+  .form-field input, .form-field select {
     width: 100%;
     padding: 0.6rem 0.75rem;
     background: var(--bg);
@@ -152,13 +192,18 @@ PAGE_TEMPLATE = """
     transition: border-color 0.2s;
   }
 
-  .form-field input:focus {
+  .form-field input:focus, .form-field select:focus {
     outline: none;
     border-color: var(--amber);
   }
 
   .form-field input::placeholder {
     color: #4a4540;
+  }
+
+  .form-field select {
+    appearance: none;
+    cursor: pointer;
   }
 
   .btn {
@@ -191,8 +236,6 @@ PAGE_TEMPLATE = """
     background: transparent;
     color: var(--amber);
     border: 1px solid var(--amber);
-    align-self: flex-end;
-    margin-top: 0.3rem;
     white-space: nowrap;
   }
   .btn-now-playing:hover {
@@ -203,6 +246,10 @@ PAGE_TEMPLATE = """
   .btn-now-playing.loading {
     opacity: 0.6;
     pointer-events: none;
+  }
+  .btn-now-playing:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .btn-delete {
@@ -218,7 +265,7 @@ PAGE_TEMPLATE = """
     background: rgba(192, 57, 43, 0.1);
   }
 
-  /* ── Mappings list ───────────────────────── */
+  /* ── Section headings ────────────────────── */
   .section-head {
     display: flex;
     align-items: baseline;
@@ -250,7 +297,7 @@ PAGE_TEMPLATE = """
     border-radius: 10px;
   }
 
-  /* ── Mapping cards ───────────────────────── */
+  /* ── Cards (mappings + unknown tags) ─────── */
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -311,6 +358,15 @@ PAGE_TEMPLATE = """
     flex-shrink: 0;
   }
 
+  /* ── Unknown tags ────────────────────────── */
+  .unknown-tags {
+    margin-bottom: 2.5rem;
+  }
+
+  [x-cloak] {
+    display: none !important;
+  }
+
   /* ── Footer ──────────────────────────────── */
   footer {
     text-align: center;
@@ -333,7 +389,7 @@ PAGE_TEMPLATE = """
   }
 </style>
 </head>
-<body>
+<body hx-boost="true">
 <div class="container">
 
   <header>
@@ -347,26 +403,66 @@ PAGE_TEMPLATE = """
     {% endfor %}
   {% endwith %}
 
-  <div class="add-form">
-    <h2>New Mapping</h2>
-    <form method="post" action="{{ url_for('add_mapping') }}">
-      <div class="form-row">
-        <div class="form-field">
-          <label for="name">Name</label>
-          <input type="text" id="name" name="name" placeholder="e.g. Kids playlist">
+  <div x-data="formHelper()" x-init="loadSpeakers(); loadUnknownTags(); setInterval(() => loadUnknownTags(), 5000)">
+
+    <div class="add-form">
+      <h2>New Mapping</h2>
+      <form method="post" action="{{ url_for('add_mapping') }}">
+        <div class="form-row">
+          <div class="form-field">
+            <label for="name">Name</label>
+            <input type="text" id="name" name="name" placeholder="e.g. Kids playlist">
+          </div>
+          <div class="form-field">
+            <label for="tag_uid">Tag UID</label>
+            <input type="text" id="tag_uid" name="tag_uid" x-ref="tagUid" placeholder="e.g. 123456789" required>
+          </div>
+          <div class="form-field">
+            <label for="media_uri">Media URI</label>
+            <input type="text" id="media_uri" name="media_uri" x-ref="mediaUri" placeholder="Spotify link, Sonos URI, or STOP" required>
+          </div>
+          <button type="submit" class="btn btn-primary">Add</button>
         </div>
-        <div class="form-field">
-          <label for="tag_uid">Tag UID</label>
-          <input type="text" id="tag_uid" name="tag_uid" placeholder="e.g. 123456789" required>
+      </form>
+      <div style="display:flex; align-items:flex-end; gap:0.5rem; margin-top:0.75rem;">
+        <div class="form-field" style="flex:0 1 auto; min-width:140px;">
+          <label for="speaker">Speaker</label>
+          <select id="speaker" x-model="selectedSpeaker">
+            <option value="">Select speaker&hellip;</option>
+            <template x-for="name in speakers" :key="name">
+              <option :value="name" x-text="name"></option>
+            </template>
+          </select>
         </div>
-        <div class="form-field">
-          <label for="media_uri">Media URI</label>
-          <input type="text" id="media_uri" name="media_uri" placeholder="Spotify link, Sonos URI, or STOP" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Add</button>
-        <button type="button" class="btn btn-now-playing" id="now-playing-btn" onclick="fetchNowPlaying()">Now Playing</button>
+        <button type="button" class="btn btn-now-playing"
+                @click="fetchNowPlaying()"
+                :class="{ loading: npLoading }"
+                :disabled="npLoading || !selectedSpeaker"
+                x-text="npButtonText">
+          Now Playing
+        </button>
       </div>
-    </form>
+    </div>
+
+    <div x-show="unknownTags.length > 0" x-cloak class="unknown-tags">
+      <div class="section-head">
+        <h2>Recently Scanned</h2>
+        <span class="badge" x-text="unknownTags.length"></span>
+      </div>
+      <template x-for="tag in unknownTags" :key="tag.tag_uid">
+        <div class="card">
+          <div class="card-groove"></div>
+          <div class="card-body">
+            <div class="card-tag" x-text="tag.tag_uid"></div>
+            <div class="card-uri" x-text="'Scanned ' + tag.scan_count + (tag.scan_count === 1 ? ' time' : ' times')"></div>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="btn btn-now-playing" @click="useTag(tag.tag_uid)">Use</button>
+          </div>
+        </div>
+      </template>
+    </div>
+
   </div>
 
   <div class="section-head">
@@ -405,28 +501,60 @@ PAGE_TEMPLATE = """
 
 </div>
 <script>
-function fetchNowPlaying() {
-  var btn = document.getElementById('now-playing-btn');
-  var input = document.getElementById('media_uri');
-  btn.classList.add('loading');
-  btn.textContent = 'Fetching\u2026';
-  fetch('{{ url_for("now_playing") }}')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.uri) {
-        input.value = data.uri;
-        input.focus();
-      } else {
-        btn.textContent = 'Nothing playing';
-        setTimeout(function() { btn.textContent = 'Now Playing'; }, 2000);
-      }
-    })
-    .catch(function() {
-      btn.textContent = 'Error';
-      setTimeout(function() { btn.textContent = 'Now Playing'; }, 2000);
-    })
-    .finally(function() { btn.classList.remove('loading'); });
-}
+document.addEventListener('alpine:init', () => {
+    Alpine.data('formHelper', () => ({
+        speakers: [],
+        selectedSpeaker: '',
+        npLoading: false,
+        npButtonText: 'Now Playing',
+        unknownTags: [],
+
+        async loadSpeakers() {
+            try {
+                const resp = await fetch('/api/speakers');
+                const data = await resp.json();
+                this.speakers = data.speakers || [];
+                if (this.speakers.length === 1) this.selectedSpeaker = this.speakers[0];
+            } catch (e) { /* speakers unavailable */ }
+        },
+
+        async fetchNowPlaying() {
+            if (!this.selectedSpeaker) return;
+            this.npLoading = true;
+            this.npButtonText = 'Fetching\u2026';
+            try {
+                const resp = await fetch('/now-playing?speaker=' + encodeURIComponent(this.selectedSpeaker));
+                const data = await resp.json();
+                if (data.uri) {
+                    this.$refs.mediaUri.value = data.uri;
+                    this.$refs.mediaUri.focus();
+                    this.npButtonText = 'Now Playing';
+                } else {
+                    this.npButtonText = 'Nothing playing';
+                    setTimeout(() => { this.npButtonText = 'Now Playing'; }, 2000);
+                }
+            } catch (e) {
+                this.npButtonText = 'Error';
+                setTimeout(() => { this.npButtonText = 'Now Playing'; }, 2000);
+            } finally {
+                this.npLoading = false;
+            }
+        },
+
+        async loadUnknownTags() {
+            try {
+                const resp = await fetch('/api/unknown-tags');
+                const data = await resp.json();
+                this.unknownTags = data.tags || [];
+            } catch (e) { /* retry next poll */ }
+        },
+
+        useTag(uid) {
+            this.$refs.tagUid.value = uid;
+            this.$refs.tagUid.focus();
+        }
+    }));
+});
 </script>
 </body>
 </html>
@@ -441,15 +569,34 @@ def index() -> str:
 
 @app.route("/now-playing")
 def now_playing() -> Response:
+    speaker_name = request.args.get("speaker")
+    if speaker_name:
+        try:
+            target = SonosAPI(speaker_name)
+            uri = target.get_current_track_uri()
+        except Exception:
+            uri = None
+        return jsonify(uri=uri)
+
     active_sonos = sonos or get_sonos()
     if active_sonos is None:
         return jsonify(uri=None)
-
     try:
         uri = active_sonos.get_current_track_uri()
     except Exception:
         uri = None
     return jsonify(uri=uri)
+
+
+@app.route("/api/speakers")
+def api_speakers() -> Response:
+    try:
+        speakers = soco.discover(timeout=5)
+        if not speakers:
+            return jsonify(speakers=[])
+        return jsonify(speakers=sorted(s.player_name for s in speakers))
+    except Exception:
+        return jsonify(speakers=[])
 
 
 @app.route("/mappings", methods=["POST"])
@@ -468,6 +615,35 @@ def delete_mapping(tag_uid: str) -> Response:
     mapper.delete_mapping(tag_uid)
     flash(f"Mapping removed for tag {escape(tag_uid)}")
     return redirect(url_for("index"))
+
+
+@app.route("/api/unknown-tags", methods=["POST"])
+def api_post_unknown_tag() -> Response:
+    data = request.get_json(silent=True)
+    if not data or not data.get("tag_uid", "").strip():
+        return jsonify(error="missing tag_uid"), 400
+    unknown_tags.report(data["tag_uid"].strip())
+    return jsonify(ok=True)
+
+
+@app.route("/api/unknown-tags", methods=["GET"])
+def api_get_unknown_tags() -> Response:
+    return jsonify(tags=unknown_tags.get_all())
+
+
+@app.route("/api/mappings")
+def api_mappings() -> Response:
+    etag = mapper.content_hash()
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+    mappings = mapper.get_all_mappings()
+    resp = jsonify(
+        mappings=[
+            {"tag_uid": t, "media_uri": u, "name": n} for t, u, n in mappings
+        ]
+    )
+    resp.headers["ETag"] = etag
+    return resp
 
 
 if __name__ == "__main__":
