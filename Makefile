@@ -2,10 +2,14 @@ ifneq (,$(wildcard .env))
     include .env
 endif
 
-.PHONY: help test test-server test-client lint format typecheck check web control read-tag sync
+PI_HOST ?= pi@tontraeger.local
+PI_DIR  ?= /home/pi/tontraeger
+
+.PHONY: help test test-server test-client lint format typecheck check web control read-tag \
+        docker-build docker-up docker-down deploy-client deploy-server
 
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*##' Makefile | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*##' Makefile | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 test: test-server test-client ## Run all tests
 
@@ -36,5 +40,21 @@ control: ## Start client (RFID reader + sync)
 read-tag: ## Read an RFID tag ID
 	cd client && uv run python -m tontraeger_client.read_rfid_tag_id
 
-sync: ## Deploy to Pi via rsync
-	./sync_to_pi.sh $(SYNC_DESTINATION)
+# ── Deployment ──────────────────────────────────────────
+
+docker-build: ## Build server Docker image
+	docker build -t tontraeger-server server/
+
+docker-up: ## Start server via docker compose
+	docker compose up -d
+
+docker-down: ## Stop server via docker compose
+	docker compose down
+
+deploy-client: ## Deploy client to Pi via rsync and restart service
+	rsync -av --filter=':- .gitignore' --exclude='tests/' \
+		client/ $(PI_HOST):$(PI_DIR)/client/
+	ssh $(PI_HOST) 'sudo systemctl restart tontraeger-client'
+
+deploy-server: docker-build ## Build and deploy server via docker compose
+	docker compose up -d

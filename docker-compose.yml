@@ -1,0 +1,15 @@
+services:
+  server:
+    build: server/
+    volumes:
+      - server-data:/app/data
+    environment:
+      - TONTRAEGER_DB_PATH=/app/data/tags.db
+      - SONOS_SPEAKER_NAME=${SONOS_SPEAKER_NAME:-Wohnzimmer}
+    restart: unless-stopped
+    # Host networking required for Sonos/SSDP speaker discovery.
+    # Port 5000 is exposed directly on the host.
+    network_mode: host
+
+volumes:
+  server-data:

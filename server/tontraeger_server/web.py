@@ -9,7 +9,7 @@ from werkzeug.wrappers import Response
 
 import soco
 
-from tontraeger_server.config import SONOS_SPEAKER_NAME
+from tontraeger_server.config import DATABASE_PATH, SONOS_SPEAKER_NAME
 from tontraeger_server.sonos_api import SonosAPI
 from tontraeger_server.tag_mapper import TagMapper
 
@@ -49,7 +49,7 @@ class UnknownTagInbox:
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
-mapper = TagMapper()
+mapper = TagMapper(DATABASE_PATH)
 sonos: Optional[SonosAPI] = None
 unknown_tags = UnknownTagInbox()
 

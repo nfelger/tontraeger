@@ -1,0 +1,16 @@
+[Unit]
+Description=tontraeger Client (RFID reader + Sonos playback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 -m tontraeger_client.main
+WorkingDirectory=/home/pi/tontraeger/client
+Restart=always
+RestartSec=5
+Environment=SONOS_SPEAKER_NAME=Wohnzimmer
+Environment=TONTRAEGER_SERVER=http://tontraeger.local:5000
+Environment=TONTRAEGER_CACHE_PATH=/home/pi/tontraeger/client/mappings.json
+
+[Install]
+WantedBy=multi-user.target
