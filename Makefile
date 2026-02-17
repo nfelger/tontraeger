@@ -20,10 +20,12 @@ test-client: ## Run client tests
 	cd client && uv run pytest
 
 lint: ## Lint code
-	uv run ruff check server/ client/
+	$(MAKE) -C server lint
+	cd client && uv run ruff check tontraeger_client/
 
 format: ## Format code
-	uv run ruff format server/ client/
+	cd server && uv run ruff format tontraeger_server/
+	cd client && uv run ruff format tontraeger_client/
 
 typecheck: ## Type check code
 	$(MAKE) -C server typecheck
