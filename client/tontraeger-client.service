@@ -1,0 +1,14 @@
+[Unit]
+Description=tontraeger Client (RFID reader + Sonos playback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/make -C __PI_DIR__ control
+WorkingDirectory=__PI_DIR__/client
+Restart=always
+RestartSec=5
+EnvironmentFile=__PI_DIR__/.env
+
+[Install]
+WantedBy=multi-user.target
