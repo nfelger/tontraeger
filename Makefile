@@ -21,11 +21,11 @@ test-client: ## Run client tests
 
 lint: ## Lint code
 	$(MAKE) -C server lint
-	cd client && uv run ruff check tontraeger_client/
+	$(MAKE) -C client lint
 
 format: ## Format code
-	cd server && uv run ruff format tontraeger_server/
-	cd client && uv run ruff format tontraeger_client/
+	$(MAKE) -C server format
+	$(MAKE) -C client format
 
 typecheck: ## Type check code
 	$(MAKE) -C server typecheck

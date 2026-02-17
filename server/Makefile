@@ -11,5 +11,8 @@ test: ## Run server tests
 lint: ## Lint server code
 	uv run ruff check .
 
+format: ## Format server code
+	uv run ruff format tontraeger_server/
+
 typecheck: ## Type check server code
 	uv run mypy tontraeger_server/
