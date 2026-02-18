@@ -5,17 +5,10 @@ card to play an album; tap a stop card to pause.
 
 ## Architecture
 
-tontraeger has two components:
-
-- **Server** (Docker container, any machine on your LAN): Flask web UI for managing
-  tag-to-URI mappings, JSON API for clients, and read-only Sonos access for the "Now
-  Playing" mapping workflow. SQLite is the source of truth for all mappings.
-- **Client** (Raspberry Pi with RFID hardware): reads RFID tags, looks up the mapped URI
-  in a local cache, and plays it directly on a Sonos speaker. Polls the server every 10
-  seconds to pick up mapping changes.
-
-The critical path — tap card, play music — has no dependency on the server. The local cache
-persists across reboots and continues to work if the server is unreachable.
+A **server** (Flask + SQLite, Docker) manages tag-to-URI mappings via a web UI and JSON API.
+A **client** (Raspberry Pi with RFID hardware) reads tags, looks up URIs in a local cache,
+and plays directly on Sonos. The critical path — tap card, play music — works without the
+server. See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
 ```
            SERVER (Flask :5000)                    CLIENT (Pi)
@@ -64,10 +57,5 @@ All configuration lives in `.env` (copy from `.env.sample`):
 
 ## Development
 
-```bash
-make test          # run all tests (server + client)
-make test-server   # server tests only
-make test-client   # client tests only
-make check         # lint + typecheck + test
-make web           # start Flask server locally (without Docker)
-```
+Run `make check` to lint, typecheck, and test everything. Run `make web` to start the
+Flask server locally (without Docker). See `make help` for all targets.
