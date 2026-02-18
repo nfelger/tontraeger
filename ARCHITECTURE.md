@@ -1,24 +1,12 @@
-# tontraeger: Client-Server Architecture
+# tontraeger: Architecture
 
-## Current Architecture
-
-Everything runs on a single Raspberry Pi:
-
-- **RFID Reader** (`rfid_reader.py`) — reads tags via SPI/GPIO
-- **Playback Controller** (`control.py`) — async event loop, debouncing, orchestration
-- **Tag Mapper** (`tag_mapper.py`) — SQLite database mapping tag UIDs to media URIs
-- **Sonos API** (`sonos_api.py`) — speaker discovery and playback control via SoCo
-- **Web UI** (`web.py`) — Flask app for managing mappings
-
-## Target Architecture
-
-### Design Principle
+## Design Principle
 
 The critical path — tap card, play music — must work without any network dependency beyond
 the Sonos speaker itself. The server is a convenience for managing mappings, not a runtime
 requirement for playback.
 
-### Server (runs as a container, single Flask process, port 5000)
+## Server (runs as a container, single Flask process, port 5000)
 
 Tag mapping management, distribution, and mapping workflow support:
 
@@ -32,11 +20,11 @@ Tag mapping management, distribution, and mapping workflow support:
   of unrecognized tag scans from clients, displayed in the web UI to simplify creating new
   mappings. Lost on server restart (acceptable — tags can be re-scanned).
 
-### Client (Raspberry Pi with RFID hardware)
+## Client (Raspberry Pi with RFID hardware)
 
 Tag reading, local lookup, and direct Sonos control:
 
-- **RFID Reader** (MFRC522) — reads tags, unchanged
+- **RFID Reader** (MFRC522) — reads tags via SPI/GPIO
 - **Local Mapping Cache** — in-memory dict for O(1) lookup, backed by a JSON file on disk
   for persistence across reboots
 - **Sonos API** (SoCo) — discovers and controls its speaker directly
@@ -45,7 +33,7 @@ Tag reading, local lookup, and direct Sonos control:
   dependencies beyond `requests` (or stdlib `urllib`).
 - **Debouncing** — 5-second duplicate suppression, client-side
 
-### Data Flow
+## Data Flow
 
 ```
                         ┌──────────────────────────────────┐
@@ -84,7 +72,7 @@ Tag reading, local lookup, and direct Sonos control:
                         └───────────────────────────────────┘
 ```
 
-### Playback Path (no server dependency)
+## Playback Path (no server dependency)
 
 1. User taps RFID card on reader
 2. `RFIDReader.read_tag()` returns tag UID
@@ -94,7 +82,7 @@ Tag reading, local lookup, and direct Sonos control:
 6. If found: `SonosAPI.play_uri(uri)`
 7. If not found: log locally, report to server via `POST /api/unknown-tags`
 
-### Mapping Sync Path
+## Mapping Sync Path
 
 1. Client polls `GET /api/mappings` every 10 seconds
 2. Request includes `If-None-Match` header with the ETag from the last response
@@ -106,7 +94,7 @@ Tag reading, local lookup, and direct Sonos control:
 The ETag is a content hash (SHA-256 of the sorted, serialized mappings). It is stateless
 and survives server restarts — no version counter needed.
 
-### Client Boot Sequence
+## Client Boot Sequence
 
 1. Load `mappings.json` from disk into in-memory dict (if file exists)
 2. Start RFID reading loop immediately (works from cached mappings)
@@ -114,7 +102,7 @@ and survives server restarts — no version counter needed.
 4. On first successful poll: update dict and disk cache
 5. If server unreachable: continue with cached mappings, keep polling
 
-### New Mapping Workflow
+## New Mapping Workflow
 
 1. User plays something on Sonos (via Spotify app, etc.)
 2. User opens tontraeger web UI, clicks "Now Playing"
@@ -131,7 +119,7 @@ Note: If faster propagation is needed during the mapping workflow, the client ca
 configured to poll immediately after reporting an unknown tag, since that's when a new
 mapping is most likely being created.
 
-## Settled Decisions
+## Design Decisions
 
 | Decision                  | Choice                                                   |
 |---------------------------|----------------------------------------------------------|
@@ -153,8 +141,6 @@ mapping is most likely being created.
 | Server deployment         | Container                                                |
 
 ## JSON API
-
-Three new endpoints added to the existing Flask app:
 
 ```
 GET /api/mappings
@@ -183,74 +169,11 @@ GET /api/unknown-tags
   }
 ```
 
-Existing HTML routes remain unchanged:
+HTML routes:
 
 ```
 GET  /                          → HTML UI
 POST /mappings                  → Create mapping (HTML form)
 POST /mappings/<uid>/delete     → Delete mapping (HTML form)
-GET  /now-playing?speaker=X     → JSON: current track URI (add speaker param)
+GET  /now-playing?speaker=X     → JSON: current track URI
 ```
-
-## Monorepo Structure
-
-```
-tontraeger/
-├── server/
-│   ├── pyproject.toml          # flask, soco, python-dotenv
-│   ├── Dockerfile
-│   ├── tontraeger_server/
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   ├── tag_mapper.py       # SQLite, adds content_hash() method
-│   │   ├── web.py              # Flask UI + JSON API, adapted "Now Playing"
-│   │   └── main.py             # Entrypoint
-│   └── tests/
-├── client/
-│   ├── pyproject.toml          # soco, requests, mfrc522, RPi.GPIO, python-dotenv
-│   ├── tontraeger_client/
-│   │   ├── __init__.py
-│   │   ├── config.py           # Reads local .env (speaker name, server addr)
-│   │   ├── rfid_reader.py      # Unchanged
-│   │   ├── sonos_api.py        # Unchanged
-│   │   ├── control.py          # Adapted: uses in-memory cache, not TagMapper
-│   │   ├── cache.py            # In-memory dict + JSON file persistence
-│   │   ├── sync.py             # HTTP polling + unknown tag reporting
-│   │   └── main.py             # Starts sync + control loop concurrently
-│   └── tests/
-└── Makefile                    # Top-level targets
-```
-
-## Testing Strategy
-
-**Server tests:**
-- `tag_mapper.py` — existing tests carry over, add test for `content_hash()`
-- `web.py` — adapt existing Flask tests, add tests for JSON API endpoints
-  (`/api/mappings` with ETag, `/api/unknown-tags`), add speaker picker for "Now Playing"
-
-**Client tests:**
-- `cache.py` — test dict operations, JSON persistence, load-on-boot, atomic write
-- `sync.py` — mock HTTP responses (200 with data, 304 not modified, connection error),
-  test cache update on new data, test ETag handling, test unknown tag reporting
-- `control.py` — adapt existing tests: use in-memory cache instead of TagMapper mock
-- `sonos_api.py` — existing tests carry over unchanged
-
-**Integration tests:**
-- Spin up Flask test server + client sync, verify end-to-end mapping propagation
-- Verify unknown tag appears in `GET /api/unknown-tags` after client POST
-
-## Migration Path
-
-The existing codebase maps cleanly to the new structure:
-
-| Current file          | Server                             | Client                       |
-|-----------------------|------------------------------------|------------------------------|
-| `tag_mapper.py`       | `tag_mapper.py` (add content hash) | —                            |
-| `web.py`              | `web.py` (add JSON API endpoints)  | —                            |
-| `sonos_api.py`        | read-only for Now Playing          | `sonos_api.py` (unchanged)   |
-| `control.py`          | —                                  | `control.py` (use cache)     |
-| `rfid_reader.py`      | —                                  | `rfid_reader.py` (unchanged) |
-| `config.py`           | `config.py`                        | `config.py`                  |
-| —                     | —                                  | `sync.py` (new)              |
-| —                     | —                                  | `cache.py` (new)             |
-| —                     | `main.py` (new)                    | `main.py` (new)              |
