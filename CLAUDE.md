@@ -1,0 +1,31 @@
+# CLAUDE.md
+
+Raspberry Pi-based Sonos controller. RFID tags trigger music playback. Monorepo with two components: a Flask server for mapping management and a Raspberry Pi client for tag reading + Sonos control.
+
+## Project Structure
+
+```
+server/   Flask web UI + JSON API + SQLite (own pyproject.toml, Makefile, uv.lock)
+client/   RFID reader + local cache + Sonos playback (own pyproject.toml, Makefile, uv.lock)
+```
+
+Dependencies managed with **uv**.
+
+## Verifying Changes
+
+IMPORTANT: run `make check` before committing — this runs lint, typecheck, and test across both components.
+
+Single test file: `cd server && uv run pytest tests/test_web.py`
+Single test: `cd server && uv run pytest tests/test_web.py::test_add_mapping`
+Auto-format: `make format`
+
+Every commit must pass `make check` and include tests for new functionality.
+
+## Architecture Essentials
+
+The critical path (tap card, play music) has **no server dependency**. The client cache allows playback to keep working when the server is down or unreachable. Do not introduce server dependencies on the playback path.
+
+Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/unknown-tags`). Changes to the API response shape require coordinated updates in both components — the client parses the server's JSON directly in `sync.py` and `cache.py`.
+
+- `"STOP"` is a special `media_uri` value that pauses playback instead of playing.
+- Spotify share links (`https://`) go through SoCo's `ShareLinkPlugin`; all other URIs use `add_uri_to_queue`.

@@ -618,7 +618,7 @@ def delete_mapping(tag_uid: str) -> Response:
 
 
 @app.route("/api/unknown-tags", methods=["POST"])
-def api_post_unknown_tag() -> Response:
+def api_post_unknown_tag() -> Response | tuple[Response, int]:
     data = request.get_json(silent=True)
     if not data or not data.get("tag_uid", "").strip():
         return jsonify(error="missing tag_uid"), 400
