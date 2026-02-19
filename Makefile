@@ -26,7 +26,7 @@ format: ## Format code
 
 typecheck: ## Type check code
 	$(MAKE) -C server typecheck
-	cd client && uv run mypy tontraeger_client/
+	$(MAKE) -C client typecheck
 
 check: lint typecheck test ## Run all checks (lint, typecheck, test)
 
@@ -34,10 +34,10 @@ web: ## Start Flask web UI (server)
 	$(MAKE) -C server run
 
 control: ## Start client (RFID reader + sync)
-	cd client && uv run python -m tontraeger_client.main
+	$(MAKE) -C client run
 
 read-tag: ## Read an RFID tag ID
-	cd client && uv run python -m tontraeger_client.read_rfid_tag_id
+	$(MAKE) -C client read-tag
 
 # ── Local server (Docker) ────────────────────────────────
 
