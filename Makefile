@@ -68,3 +68,6 @@ install-client-service: ## Install the systemd service file on the Pi
 		| sed 's|__PI_UV_BIN_DIR__|$(PI_UV_BIN_DIR)|g' \
 		| ssh $(PI_HOST) 'sudo tee /etc/systemd/system/tontraeger-client.service > /dev/null'
 	ssh $(PI_HOST) 'sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client && sudo systemctl start tontraeger-client.service'
+
+client-log-tail: ## Tail the client logs on the Pi
+	ssh $(PI_HOST) 'journalctl -u tontraeger-client -f'
