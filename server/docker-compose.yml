@@ -8,7 +8,7 @@ services:
       - SONOS_SPEAKER_NAME=${SONOS_SPEAKER_NAME}
     restart: unless-stopped
     # Host networking required for Sonos/SSDP speaker discovery.
-    # Port 5000 is exposed directly on the host.
+    # Port 3000 is exposed directly on the host.
     network_mode: host
 
 volumes:

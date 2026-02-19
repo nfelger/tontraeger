@@ -28,7 +28,7 @@ Key server variable:
 make run-server
 ```
 
-This builds the Docker image and starts the server. The server listens on port 5000.
+This builds the Docker image and starts the server. The server listens on port 3000.
 The SQLite database is persisted in a Docker volume.
 
 To stop: `make docker-down`
@@ -78,7 +78,7 @@ Edit `.env` on your development machine with the client variables:
 - `PI_USER` — user on the Pi for running the service (default: `pi`)
 - `PI_GROUP` — group on the Pi for running the service (default: `pi`)
 - `PI_UV_BIN_DIR` — path to the `uv` binary on the Pi (default: `/home/pi/.local/bin`)
-- `TONTRAEGER_SERVER` — server URL (default: `http://tontraeger.local:5000`)
+- `TONTRAEGER_SERVER` — server URL (default: `http://tontraeger.local:3000`)
 - `SONOS_SPEAKER_NAME` — Sonos speaker to play on (default: `Wohnzimmer`)
 - `TONTRAEGER_CACHE_PATH` — local mapping cache on the Pi
 

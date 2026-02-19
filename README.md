@@ -11,7 +11,7 @@ and plays directly on Sonos. The critical path — tap card, play music — work
 server. See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
 ```
-           SERVER (Flask :5000)                    CLIENT (Pi)
+           SERVER (Flask :3000)                    CLIENT (Pi)
            │                                       │
       Web UI ◄────► TagMapper (SQLite)        HTTP Sync (polls every 10s)
            │               │                      │
@@ -36,7 +36,7 @@ make install-client-service  # install + enable systemd unit on the Pi
 ## Adding a New Mapping
 
 1. Play something on Sonos (via the Spotify app, etc.)
-2. Open the web UI at `http://tontraeger.local:5000`
+2. Open the web UI at `http://tontraeger.local:3000`
 3. Click **Now Playing** and pick your speaker — the URI is pre-filled
 4. Tap the RFID card you want to assign — the client reports the unknown tag to the server
    and it appears in the **Recently Scanned** list
@@ -55,7 +55,7 @@ All configuration lives in `.env` (copy from `.env.sample`):
 | `PI_USER` | deploy targets | `pi` | User on the Pi for running the service |
 | `PI_GROUP` | deploy targets | `pi` | Group on the Pi for running the service |
 | `PI_UV_BIN_DIR` | client | `/home/pi/.local/bin` | Path to the `uv` binary on the Pi |
-| `TONTRAEGER_SERVER` | client | `http://tontraeger.local:5000` | Server URL |
+| `TONTRAEGER_SERVER` | client | `http://tontraeger.local:3000` | Server URL |
 | `TONTRAEGER_CACHE_PATH` | client | `/home/pi/tontraeger/client/mappings.json` | Local mapping cache path on Pi |
 
 ## Development

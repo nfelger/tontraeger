@@ -1,6 +1,6 @@
 # Server
 
-Single-process Flask app on port 5000. SQLite source of truth. ETag (SHA-256 content hash) for conditional sync with clients.
+Single-process Flask app on port 3000. SQLite source of truth. ETag (SHA-256 content hash) for conditional sync with clients.
 
 ## Gotchas
 
