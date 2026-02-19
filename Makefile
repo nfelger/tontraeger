@@ -2,9 +2,6 @@ ifneq (,$(wildcard .env))
     include .env
 endif
 
-PI_HOST ?= pi@tontraeger.local
-PI_DIR  ?= /home/pi/tontraeger
-
 .PHONY: help test test-server test-client lint format typecheck check web control read-tag \
         docker-build docker-up docker-down sync-client run-server install-client-service
 
