@@ -4,11 +4,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/make -C __PI_DIR__ control
+User=__PI_USER__
+Group=__PI_GROUP__
+ExecStart=/usr/bin/make -C __PI_DIR__/client run
 WorkingDirectory=__PI_DIR__/client
 Restart=always
 RestartSec=5
-EnvironmentFile=__PI_DIR__/.env
+Environment="PATH=__PI_UV_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=__PI_DIR__/client/.env
 
 [Install]
 WantedBy=multi-user.target

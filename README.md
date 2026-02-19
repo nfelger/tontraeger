@@ -52,6 +52,9 @@ All configuration lives in `.env` (copy from `.env.sample`):
 | `SONOS_SPEAKER_NAME` | server + client | `Wohnzimmer` | Default Sonos speaker name |
 | `PI_HOST` | deploy targets | `pi@tontraeger.local` | SSH target for the Pi |
 | `PI_DIR` | deploy targets | `/home/pi/tontraeger` | Deployment directory on the Pi |
+| `PI_USER` | deploy targets | `pi` | User on the Pi for running the service |
+| `PI_GROUP` | deploy targets | `pi` | Group on the Pi for running the service |
+| `PI_UV_BIN_DIR` | client | `/home/pi/.local/bin` | Path to the `uv` binary on the Pi |
 | `TONTRAEGER_SERVER` | client | `http://tontraeger.local:5000` | Server URL |
 | `TONTRAEGER_CACHE_PATH` | client | `/home/pi/tontraeger/client/mappings.json` | Local mapping cache path on Pi |
 

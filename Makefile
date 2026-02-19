@@ -63,5 +63,8 @@ sync-client: ## Sync client code + .env to Pi via rsync and restart service
 
 install-client-service: ## Install the systemd service file on the Pi
 	sed 's|__PI_DIR__|$(PI_DIR)|g' client/tontraeger-client.service \
+		| sed 's|__PI_USER__|$(PI_USER)|g' \
+		| sed 's|__PI_GROUP__|$(PI_GROUP)|g' \
+		| sed 's|__PI_UV_BIN_DIR__|$(PI_UV_BIN_DIR)|g' \
 		| ssh $(PI_HOST) 'sudo tee /etc/systemd/system/tontraeger-client.service > /dev/null'
 	ssh $(PI_HOST) 'sudo systemctl daemon-reload && sudo systemctl enable tontraeger-client'

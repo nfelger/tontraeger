@@ -75,6 +75,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Edit `.env` on your development machine with the client variables:
 - `PI_HOST` — SSH target for the Pi (default: `pi@tontraeger.local`)
 - `PI_DIR` — directory on the Pi (default: `/home/pi/tontraeger`)
+- `PI_USER` — user on the Pi for running the service (default: `pi`)
+- `PI_GROUP` — group on the Pi for running the service (default: `pi`)
+- `PI_UV_BIN_DIR` — path to the `uv` binary on the Pi (default: `/home/pi/.local/bin`)
 - `TONTRAEGER_SERVER` — server URL (default: `http://tontraeger.local:5000`)
 - `SONOS_SPEAKER_NAME` — Sonos speaker to play on (default: `Wohnzimmer`)
 - `TONTRAEGER_CACHE_PATH` — local mapping cache on the Pi
