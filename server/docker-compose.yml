@@ -1,6 +1,6 @@
 services:
   server:
-    build: server/
+    build: .
     volumes:
       - server-data:/app/data
     environment:

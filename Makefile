@@ -45,13 +45,13 @@ docker-build: ## Build server Docker image
 	docker build -t tontraeger-server server/
 
 docker-up: ## Start server via docker compose (without rebuilding)
-	docker compose up -d
+	cd server/ && docker compose up -d
 
 docker-down: ## Stop server via docker compose
-	docker compose down
+	cd server/ && docker compose down
 
 run-server: ## Rebuild image and restart server via docker compose
-	docker compose up --build -d
+	cd server/ && docker compose up --build -d
 
 # ── Client (Pi) ──────────────────────────────────────────
 
