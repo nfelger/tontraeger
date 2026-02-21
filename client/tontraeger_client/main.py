@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import signal
 
 from tontraeger_client.cache import MappingCache
@@ -63,6 +64,11 @@ def main() -> None:
         reader.cleanup()
         loop.close()
         logger.info("tontraeger client stopped")
+        # The RFID reader thread (reader.read_tag) may be stuck in a blocking
+        # SPI call that cannot be interrupted.  Since ThreadPoolExecutor uses
+        # non-daemon threads, the process would hang forever waiting for that
+        # thread.  Force-exit after all cleanup is done.
+        os._exit(0)
 
 
 if __name__ == "__main__":
