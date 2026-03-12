@@ -1,12 +1,13 @@
 # CLAUDE.md
 
-Raspberry Pi-based Sonos controller. RFID tags trigger music playback. Monorepo with two components: a Flask server for mapping management and a Raspberry Pi client for tag reading + Sonos control.
+Raspberry Pi-based Sonos controller. NFC tags trigger music playback (place tag = play, remove tag = pause). Monorepo with two components: a Flask server for mapping management and a Raspberry Pi client for tag reading + Sonos control.
 
 ## Project Structure
 
 ```
-server/   Flask web UI + JSON API + SQLite (own pyproject.toml, Makefile, uv.lock)
-client/   RFID reader + local cache + Sonos playback (own pyproject.toml, Makefile, uv.lock)
+server/          Flask web UI + JSON API + SQLite (own pyproject.toml, Makefile, uv.lock)
+client/          NFC reader + local cache + Sonos playback (own pyproject.toml, Makefile, uv.lock)
+  nfc-daemon/    C daemon that talks to PN532 via libnfc, emits PRESENT/REMOVED events
 ```
 
 Dependencies managed with **uv**.
@@ -27,5 +28,4 @@ The critical path (tap card, play music) has **no server dependency**. The clien
 
 Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/unknown-tags`). Changes to the API response shape require coordinated updates in both components — the client parses the server's JSON directly in `sync.py` and `cache.py`.
 
-- `"STOP"` is a special `media_uri` value that pauses playback instead of playing.
 - Spotify share links (`https://`) go through SoCo's `ShareLinkPlugin`; all other URIs use `add_uri_to_queue`.

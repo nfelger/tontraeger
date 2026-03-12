@@ -1,4 +1,4 @@
-.PHONY: help lint format typecheck run read-tag
+.PHONY: help lint format typecheck run build-nfc-daemon test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' Makefile | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -12,8 +12,11 @@ format: ## Format client code
 typecheck: ## Type check client code
 	uv run mypy tontraeger_client/
 
-run: ## Start client (RFID reader + sync)
+test: ## Run client tests
+	uv run pytest
+
+run: ## Start client (NFC reader + sync)
 	uv run python -m tontraeger_client.main
 
-read-tag: ## Read an RFID tag ID
-	uv run python -m tontraeger_client.read_rfid_tag_id
+build-nfc-daemon: ## Build the NFC daemon binary
+	$(MAKE) -C nfc-daemon

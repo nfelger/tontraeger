@@ -1,7 +1,7 @@
 import asyncio
 import logging
-import time
-from typing import Optional, Protocol
+import signal
+import sys
 
 from tontraeger_client.cache import MappingCache
 from tontraeger_client.sonos_api import SonosAPI
@@ -9,80 +9,138 @@ from tontraeger_client.sync import MappingSync
 
 logger = logging.getLogger(__name__)
 
+# Tell Linux to kill the NFC daemon child process if the parent (Python) dies.
+# Without this, a hard crash would leave the daemon running as an orphan.
+# Linux-only: the ctypes call would crash on macOS, breaking tests.
+if sys.platform == "linux":
+    import ctypes
 
-class TagReader(Protocol):
-    def read_tag(self) -> str: ...
-    def cleanup(self) -> None: ...
+    _libc = ctypes.CDLL("libc.so.6")
+    _PR_SET_PDEATHSIG = 1
 
-# Constant representing the stop command.
-STOP_COMMAND: str = "STOP"
+    def _set_pdeathsig() -> None:
+        _libc.prctl(_PR_SET_PDEATHSIG, signal.SIGTERM)
+else:
+    _set_pdeathsig = None
+
 
 class PlaybackController:
     def __init__(
         self,
         sonos_api: SonosAPI,
         cache: MappingCache,
-        sync: Optional[MappingSync] = None,
+        sync: MappingSync | None = None,
     ) -> None:
         self.sonos_api = sonos_api
         self.cache = cache
         self.sync = sync
+        self._pending_report: asyncio.Task[None] | None = None
 
-    def handle_tag(self, tag_uid: str) -> None:
-        """Given a tag UID, look up the URI in the local cache.
-
-        - If found and URI is STOP: stop playback.
-        - If found: play the URI.
-        - If not found: log and report to server as unknown tag.
-        """
+    async def handle_present(self, tag_uid: str) -> None:
+        """A tag was placed on the reader. Play its music, or report it as unknown."""
         uri = self.cache.get_uri(tag_uid)
         if uri is None:
             logger.info("Unknown tag: %s", tag_uid)
             if self.sync is not None:
-                self.sync.report_unknown_tag(tag_uid)
+                # Fire-and-forget: report_unknown_tag has its own error handling.
+                # We store the task to prevent "Task was destroyed" GC warnings.
+                self._pending_report = asyncio.create_task(self.sync.report_unknown_tag(tag_uid))
             return
-        if uri.upper() == STOP_COMMAND:
-            self.sonos_api.stop_playback()
-        else:
-            self.sonos_api.play_uri(uri)
+        await self.sonos_api.play_uri(uri)
 
-async def process_tag(tag: str, controller: PlaybackController) -> None:
-    """Asynchronously processes a tag by invoking the controller.
-    Errors are caught and logged.
+    async def handle_removed(self, tag_uid: str) -> None:
+        """A tag was removed from the reader. Pause playback."""
+        await self.sonos_api.stop_playback()
+
+
+async def nfc_reader(controller: PlaybackController, daemon_path: str) -> None:
+    """Run the NFC daemon and react to tag events. Runs forever.
+
+    Reads PRESENT/REMOVED lines from the daemon's stdout and calls
+    the controller. If the daemon crashes, restarts it with increasing
+    delays (1s, 2s, 4s, ... up to 30s). The delay resets after the daemon
+    produces its first output (i.e., it actually started working).
     """
-    try:
-        controller.handle_tag(tag)
-        logger.info("Processed tag %s successfully.", tag)
-    except Exception as e:
-        logger.error("Error processing tag %s: %s", tag, e)
+    backoff_s = 1.0
+    max_backoff_s = 30.0
 
-async def main_loop(reader: TagReader, controller: PlaybackController, max_iterations: Optional[int] = None) -> None:
-    """Continuously listens for RFID tags. Optionally stops after max_iterations (useful for testing).
-    A debouncing mechanism is implemented to ignore duplicate reads of the same tag within a short interval.
-    The blocking reader.read_tag() call is run in an executor so the event loop remains responsive.
-    """
-    loop = asyncio.get_running_loop()
-    iteration = 0
-    last_tag = None
-    last_tag_time = 0.0
-    DEBOUNCE_INTERVAL = 5.0  # seconds
+    while True:
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                daemon_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=None,  # inherit — flows to journald
+                preexec_fn=_set_pdeathsig,
+            )
+            logger.info("NFC daemon started (pid %s)", proc.pid)
 
-    try:
-        while True:
-            tag = await loop.run_in_executor(None, reader.read_tag)
-            now = time.time()
-            if tag == last_tag and (now - last_tag_time) < DEBOUNCE_INTERVAL:
-                logger.debug("Ignoring duplicate tag %s (debounce active)", tag)
-                continue
+            assert proc.stdout is not None
+            first_line = True
 
-            last_tag = tag
-            last_tag_time = now
+            while True:
+                line_bytes = await proc.stdout.readline()
+                if not line_bytes:
+                    # EOF — daemon died
+                    break
 
-            asyncio.create_task(process_tag(tag, controller))
-            iteration += 1
-            if max_iterations is not None and iteration >= max_iterations:
-                break
-    except KeyboardInterrupt:
-        logger.info("Shutting down.")
-    finally:
-        reader.cleanup()
+                if first_line:
+                    backoff_s = 1.0  # reset after first output
+                    first_line = False
+
+                line = line_bytes.decode(errors="replace").strip()
+                if not line:
+                    continue
+
+                parts = line.split(" ", 1)
+                if len(parts) != 2 or parts[0] not in ("PRESENT", "REMOVED"):
+                    logger.warning("Malformed daemon output: %r", line)
+                    continue
+
+                event, tag_uid = parts
+                if not tag_uid:
+                    logger.warning("Empty UID in daemon output: %r", line)
+                    continue
+
+                try:
+                    if event == "PRESENT":
+                        await controller.handle_present(tag_uid)
+                    else:
+                        await controller.handle_removed(tag_uid)
+                except Exception:
+                    logger.exception("Error handling %s event for tag %s", event, tag_uid)
+
+            # If we get here, the daemon exited
+            returncode = await proc.wait()
+            logger.warning(
+                "NFC daemon exited (code %s), restarting in %.0fs", returncode, backoff_s
+            )
+
+        except FileNotFoundError:
+            logger.error(
+                "NFC daemon binary not found: %s — retrying in %.0fs", daemon_path, backoff_s
+            )
+
+        except asyncio.CancelledError:
+            raise  # let finally handle cleanup
+
+        except Exception:
+            logger.exception("Unexpected error in nfc_reader, restarting in %.0fs", backoff_s)
+
+        finally:
+            # Clean up the daemon process if it's still running.
+            # shield() prevents task cancellation from interrupting the wait.
+            if proc is not None and proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(asyncio.shield(proc.wait()), timeout=3.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    proc.kill()
+                    try:
+                        await asyncio.shield(proc.wait())
+                    except asyncio.CancelledError:
+                        pass
+                logger.info("NFC daemon terminated")
+
+        await asyncio.sleep(backoff_s)
+        backoff_s = min(backoff_s * 2, max_backoff_s)

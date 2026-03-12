@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 import tempfile
-from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class MappingCache:
@@ -19,17 +21,22 @@ class MappingCache:
         self._load()
 
     def _load(self) -> None:
-        """Load mappings from the JSON file on disk, if it exists."""
+        """Load mappings from the JSON file on disk, if it exists.
+
+        Starts with an empty cache if the file is missing or corrupt —
+        the next successful server sync will repopulate it.
+        """
         if not os.path.exists(self._cache_path):
             return
-        with open(self._cache_path, "r") as f:
-            data = json.load(f)
-        self._mappings = {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
-            for m in data
-        }
+        try:
+            with open(self._cache_path, "r") as f:
+                data = json.load(f)
+            self._mappings = {m["tag_uid"]: (m["media_uri"], m.get("name", "")) for m in data}
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            logger.warning("Corrupt cache file %s, starting empty: %s", self._cache_path, e)
+            self._mappings = {}
 
-    def get_uri(self, tag_uid: str) -> Optional[str]:
+    def get_uri(self, tag_uid: str) -> str | None:
         """Return the media URI for a tag, or None if not cached."""
         entry = self._mappings.get(tag_uid)
         if entry is None:
@@ -37,11 +44,13 @@ class MappingCache:
         return entry[0]
 
     def update(self, mappings: list[dict]) -> None:
-        """Replace all cached mappings and persist to disk atomically."""
-        self._mappings = {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
-            for m in mappings
-        }
+        """Replace all cached mappings and persist to disk atomically.
+
+        Called from a thread (via run_in_executor in sync.py). The dict
+        assignment is atomic under CPython's GIL, so get_uri() in the
+        async event loop always sees a consistent snapshot.
+        """
+        self._mappings = {m["tag_uid"]: (m["media_uri"], m.get("name", "")) for m in mappings}
         self._persist()
 
     def all_mappings(self) -> dict[str, tuple[str, str]]:

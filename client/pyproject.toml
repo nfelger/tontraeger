@@ -4,10 +4,8 @@ version = "0.1.0"
 description = "tontraeger client — RFID tag reading and Sonos playback"
 requires-python = ">=3.11"
 dependencies = [
-    "mfrc522>=0.0.3; sys_platform == 'linux'",
     "python-dotenv>=1.0.1",
     "requests>=2.31",
-    "RPi.GPIO>=0.7.1; sys_platform == 'linux'",
     "soco>=0.30.0",
 ]
 
