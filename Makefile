@@ -2,8 +2,8 @@ ifneq (,$(wildcard .env))
     include .env
 endif
 
-.PHONY: help test test-server test-client lint format typecheck check web control read-tag \
-        docker-build docker-up docker-down sync-client run-server install-client-service
+.PHONY: help test test-server test-client lint format typecheck check web control \
+        docker-build docker-up docker-down build-nfc-daemon sync-client run-server install-client-service
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' Makefile | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -14,7 +14,7 @@ test-server: ## Run server tests
 	$(MAKE) -C server test
 
 test-client: ## Run client tests
-	cd client && uv run pytest
+	$(MAKE) -C client test
 
 lint: ## Lint code
 	$(MAKE) -C server lint
@@ -33,11 +33,8 @@ check: lint typecheck test ## Run all checks (lint, typecheck, test)
 web: ## Start Flask web UI (server)
 	$(MAKE) -C server run
 
-control: ## Start client (RFID reader + sync)
+control: ## Start client (NFC reader + sync)
 	$(MAKE) -C client run
-
-read-tag: ## Read an RFID tag ID
-	$(MAKE) -C client read-tag
 
 # ── Local server (Docker) ────────────────────────────────
 
@@ -55,10 +52,14 @@ run-server: ## Rebuild image and restart server via docker compose
 
 # ── Client (Pi) ──────────────────────────────────────────
 
+build-nfc-daemon: ## Build the NFC daemon binary (requires libnfc-dev)
+	$(MAKE) -C client build-nfc-daemon
+
 sync-client: ## Sync client code + .env to Pi via rsync and restart service
-	ssh $(PI_HOST) "mkdir -p $(PI_DIR)/client" && \
-	git ls-files -oc --exclude-standard client/ | rsync -av --files-from=- ./ $(PI_HOST):$(PI_DIR)/ && \
-	scp client/.env $(PI_HOST):$(PI_DIR)/client/.env && \
+	ssh $(PI_HOST) "mkdir -p $(PI_DIR)/client/nfc-daemon"
+	git ls-files -oc --exclude-standard client/ | rsync -av --files-from=- ./ $(PI_HOST):$(PI_DIR)/
+	scp client/.env $(PI_HOST):$(PI_DIR)/client/.env
+	ssh $(PI_HOST) 'cd $(PI_DIR)/client/nfc-daemon && make && sudo cp nfc-daemon /usr/local/bin/'
 	ssh $(PI_HOST) 'sudo systemctl restart tontraeger-client' || true
 
 install-client-service: ## Install the systemd service file on the Pi

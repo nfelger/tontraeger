@@ -62,3 +62,9 @@ All configuration lives in `.env` (copy from `.env.sample`):
 
 Run `make check` to lint, typecheck, and test everything. Run `make web` to start the
 Flask server locally (without Docker). See `make help` for all targets.
+
+Linting the NFC daemon C code requires [cppcheck](https://cppcheck.sourceforge.io/):
+
+```bash
+brew install cppcheck   # macOS
+```
