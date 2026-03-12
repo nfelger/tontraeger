@@ -28,7 +28,7 @@ class PlaybackController:
         self.cache = cache
         self.sync = sync
 
-    def handle_tag(self, tag_uid: str) -> None:
+    async def handle_tag(self, tag_uid: str) -> None:
         """Given a tag UID, look up the URI in the local cache.
 
         - If found and URI is STOP: stop playback.
@@ -42,16 +42,16 @@ class PlaybackController:
                 self.sync.report_unknown_tag(tag_uid)
             return
         if uri.upper() == STOP_COMMAND:
-            self.sonos_api.stop_playback()
+            await self.sonos_api.stop_playback()
         else:
-            self.sonos_api.play_uri(uri)
+            await self.sonos_api.play_uri(uri)
 
 async def process_tag(tag: str, controller: PlaybackController) -> None:
     """Asynchronously processes a tag by invoking the controller.
     Errors are caught and logged.
     """
     try:
-        controller.handle_tag(tag)
+        await controller.handle_tag(tag)
         logger.info("Processed tag %s successfully.", tag)
     except Exception as e:
         logger.error("Error processing tag %s: %s", tag, e)

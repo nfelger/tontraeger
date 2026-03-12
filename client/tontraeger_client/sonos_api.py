@@ -1,57 +1,37 @@
+import asyncio
+import logging
+
+import soco
 from soco import SoCo
 from soco.plugins.sharelink import ShareLinkPlugin
-from typing import Optional
-import soco
+
+logger = logging.getLogger(__name__)
 
 
 class SonosAPI:
     def __init__(self, speaker_name: str) -> None:
-        """
-        Initialize with target speaker name (e.g., 'Living Room').
-
-        Args:
-            speaker_name: Name of the Sonos speaker to control
-
-        Raises:
-            Exception: If no speakers found or speaker name doesn't match
-        """
+        """Initialize with target speaker name. Discovery happens lazily."""
         self.speaker_name = speaker_name
-        self._speaker: Optional[SoCo] = None
-        self._discover_speaker()
+        self._speaker: SoCo | None = None
 
-    def _discover_speaker(self) -> None:
-        """
-        Find speaker by name from soco.discover().
-
-        Raises:
-            Exception: If no speakers found on network or speaker name not found
-        """
+    def _find_speaker(self) -> SoCo:
+        """Search the network for the speaker. Raises if not found."""
         speakers = soco.discover()
         if not speakers:
-            raise Exception("No Sonos speakers found on network")
+            raise RuntimeError("No Sonos speakers found on network")
 
-        self._speaker = next(
-            (s for s in speakers if s.player_name == self.speaker_name), None
-        )
-        if not self._speaker:
+        speaker = next((s for s in speakers if s.player_name == self.speaker_name), None)
+        if not speaker:
             available = ", ".join(s.player_name for s in speakers)
-            raise Exception(
-                f"Speaker '{self.speaker_name}' not found. Available speakers: {available}"
+            raise RuntimeError(
+                f"Speaker '{self.speaker_name}' not found. Available: {available}"
             )
+        return speaker
 
-    def play_uri(self, uri: str) -> None:
-        """
-        Clear the queue, add the URI, and play from the start.
-
-        Works with both directly-playable URIs (radio streams, tracks)
-        and container URIs (albums, playlists).
-
-        Args:
-            uri: A SoCo-compatible media URI
-        """
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
-
+    def _do_play(self, uri: str) -> None:
+        """Clear queue, add URI, and start playing. Blocking (network I/O)."""
+        if self._speaker is None:
+            raise RuntimeError("Speaker not initialized")
         self._speaker.clear_queue()
         if uri.startswith("https://"):
             ShareLinkPlugin(self._speaker).add_share_link_to_queue(uri)
@@ -59,18 +39,41 @@ class SonosAPI:
             self._speaker.add_uri_to_queue(uri)
         self._speaker.play_from_queue(0)
 
-    def get_current_track_uri(self) -> Optional[str]:
-        """Return the media URI of the currently playing track, or None."""
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
+    async def discover(self) -> None:
+        """Keep searching for the speaker until found. Retries every 5s."""
+        loop = asyncio.get_running_loop()
+        while self._speaker is None:
+            try:
+                self._speaker = await loop.run_in_executor(None, self._find_speaker)
+                logger.info("Discovered speaker: %s", self.speaker_name)
+            except Exception as e:
+                logger.warning("Speaker discovery failed: %s — retrying in 5s", e)
+                await asyncio.sleep(5)
 
-        info = self._speaker.get_current_track_info()
-        uri = info.get("uri", "")
-        return uri if uri else None
+    async def play_uri(self, uri: str) -> None:
+        """Play a URI. Finds the speaker first if needed.
 
-    def stop_playback(self) -> None:
-        """Pause playback on speaker."""
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
+        On error, forgets the speaker so the next call rediscovers it.
+        """
+        if self._speaker is None:
+            await self.discover()
 
-        self._speaker.pause()
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, self._do_play, uri)
+        except Exception as e:
+            logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
+            self._speaker = None
+            raise
+
+    async def stop_playback(self) -> None:
+        """Pause playback. Does nothing if no speaker has been found yet."""
+        if self._speaker is None:
+            return
+
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, self._speaker.pause)
+        except Exception as e:
+            logger.error("stop_playback failed: %s — clearing speaker for rediscovery", e)
+            self._speaker = None
