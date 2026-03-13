@@ -40,16 +40,21 @@ class MappingSync:
             logger.warning("Unexpected status from server: %s", resp.status_code)
             return False
 
-        etag = resp.headers.get("ETag")
-        if etag:
-            self._etag = etag
-
         try:
             data = resp.json()
         except ValueError:
             logger.warning("Invalid JSON in server response")
             return False
+
+        if not isinstance(data, dict):
+            logger.warning("Unexpected JSON shape from server (expected object)")
+            return False
+
         self._cache.update(data.get("mappings", []))
+
+        etag = resp.headers.get("ETag")
+        if etag:
+            self._etag = etag
         return True
 
     async def report_unknown_tag(self, tag_uid: str) -> None:

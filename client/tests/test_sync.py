@@ -130,6 +130,29 @@ class TestPoll:
         assert result is False
         assert cache.all_mappings() == {}
 
+    @patch("tontraeger_client.sync.requests.get")
+    def test_malformed_json_does_not_advance_etag(self, mock_get, sync):
+        """Invalid JSON body must not store the ETag — next poll should retry."""
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {"ETag": "should-not-stick"}
+        resp.json.side_effect = ValueError("bad json")
+        mock_get.return_value = resp
+
+        sync.poll()
+
+        assert sync._etag is None
+
+    @patch("tontraeger_client.sync.requests.get")
+    def test_non_dict_json_does_not_crash(self, mock_get, sync, cache):
+        """Server returns a JSON list instead of an object — sync continues."""
+        mock_get.return_value = _mock_response(200, json_data=[1, 2, 3])
+
+        result = sync.poll()
+
+        assert result is False
+        assert cache.all_mappings() == {}
+
 
 class TestReportUnknownTag:
     @pytest.mark.asyncio

@@ -43,7 +43,7 @@ class PlaybackController:
             logger.info("Unknown tag: %s", tag_uid)
             if self.sync is not None:
                 # Fire-and-forget: report_unknown_tag has its own error handling.
-                # We store the task to prevent "Task was destroyed" GC warnings.
+                # Store a reference so the task isn't garbage-collected mid-execution.
                 self._pending_report = asyncio.create_task(self.sync.report_unknown_tag(tag_uid))
             return
         await self.sonos_api.play_uri(uri)

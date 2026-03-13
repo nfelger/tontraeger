@@ -1,5 +1,5 @@
 [Unit]
-Description=tontraeger Client (RFID reader + Sonos playback)
+Description=tontraeger Client (NFC reader + Sonos playback)
 After=network-online.target
 Wants=network-online.target
 
@@ -11,6 +11,7 @@ WorkingDirectory=__PI_DIR__/client
 Restart=always
 RestartSec=5
 Environment="PATH=__PI_UV_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="NFC_DAEMON_PATH=/usr/local/bin/nfc-daemon"
 EnvironmentFile=__PI_DIR__/client/.env
 
 [Install]

@@ -109,3 +109,21 @@ def test_file_not_found_on_first_boot(tmp_path):
     cache = MappingCache(str(tmp_path / "does_not_exist.json"))
     assert cache.get_uri("any") is None
     assert cache.all_mappings() == {}
+
+
+def test_corrupt_json_file_starts_empty(cache_path):
+    """A corrupt cache file is logged and treated as empty, not a crash."""
+    with open(cache_path, "w") as f:
+        f.write("not valid json{{{")
+
+    cache = MappingCache(cache_path)
+    assert cache.all_mappings() == {}
+
+
+def test_wrong_shape_json_file_starts_empty(cache_path):
+    """A cache file containing a JSON dict (not a list) is treated as empty."""
+    with open(cache_path, "w") as f:
+        json.dump({"not": "a list"}, f)
+
+    cache = MappingCache(cache_path)
+    assert cache.all_mappings() == {}

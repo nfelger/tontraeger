@@ -37,8 +37,9 @@ static void format_uid(const uint8_t *uid, size_t len, char *buf, size_t bufsize
     size_t pos = 0;
     for (size_t i = 0; i < len; i++) {
         int n = snprintf(buf + pos, bufsize - pos, "%s%02x", i ? ":" : "", uid[i]);
-        if (n > 0)
-            pos += (size_t)n;
+        if (n <= 0 || pos + (size_t)n >= bufsize)
+            break;
+        pos += (size_t)n;
     }
 }
 
@@ -97,7 +98,7 @@ int main(void)
         .nbr = NBR_106,
     };
 
-    char uid_str[MAX_UID_LEN * 3 + 1];
+    char uid_str[MAX_UID_LEN * 3 + 1] = "";
 
     for (;;) {
         nfc_target target;

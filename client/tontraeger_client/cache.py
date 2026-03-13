@@ -1,7 +1,10 @@
 import json
+import logging
 import os
 import tempfile
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class MappingCache:
@@ -18,16 +21,27 @@ class MappingCache:
         self._mappings: dict[str, tuple[str, str]] = {}  # tag_uid -> (media_uri, name)
         self._load()
 
+    @staticmethod
+    def _parse(mappings: list[dict]) -> dict[str, tuple[str, str]]:
+        return {
+            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
+            for m in mappings
+        }
+
     def _load(self) -> None:
-        """Load mappings from the JSON file on disk, if it exists."""
+        """Load mappings from the JSON file on disk, if it exists.
+
+        A corrupt or unreadable file is logged and treated as empty — the next
+        successful server sync will repopulate it.
+        """
         if not os.path.exists(self._cache_path):
             return
-        with open(self._cache_path, "r") as f:
-            data = json.load(f)
-        self._mappings = {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
-            for m in data
-        }
+        try:
+            with open(self._cache_path, "r") as f:
+                data = json.load(f)
+            self._mappings = self._parse(data)
+        except (json.JSONDecodeError, KeyError, TypeError, OSError) as e:
+            logger.warning("Corrupt cache file %s, starting empty: %s", self._cache_path, e)
 
     def get_uri(self, tag_uid: str) -> Optional[str]:
         """Return the media URI for a tag, or None if not cached."""
@@ -38,10 +52,7 @@ class MappingCache:
 
     def update(self, mappings: list[dict]) -> None:
         """Replace all cached mappings and persist to disk atomically."""
-        self._mappings = {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
-            for m in mappings
-        }
+        self._mappings = self._parse(mappings)
         self._persist()
 
     def all_mappings(self) -> dict[str, tuple[str, str]]:
@@ -59,6 +70,8 @@ class MappingCache:
         try:
             with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, self._cache_path)
         except BaseException:
             try:
