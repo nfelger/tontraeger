@@ -4,15 +4,20 @@ import os
 import signal
 
 from tontraeger_client.cache import MappingCache
-from tontraeger_client.config import CACHE_PATH, SONOS_SPEAKER_NAME, TONTRAEGER_SERVER
-from tontraeger_client.control import PlaybackController
+from tontraeger_client.config import (
+    CACHE_PATH,
+    NFC_DAEMON_PATH,
+    SONOS_SPEAKER_NAME,
+    TONTRAEGER_SERVER,
+)
+from tontraeger_client.control import PlaybackController, nfc_reader
 from tontraeger_client.sonos_api import SonosAPI
 from tontraeger_client.sync import MappingSync
 
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
+async def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -22,51 +27,60 @@ def main() -> None:
     logger.info("Server: %s", TONTRAEGER_SERVER)
     logger.info("Speaker: %s", SONOS_SPEAKER_NAME)
     logger.info("Cache: %s", CACHE_PATH)
-
-    # Import RFIDReader here to avoid importing RPi.GPIO on non-Pi machines
-    from tontraeger_client.rfid_reader import RFIDReader
+    logger.info("NFC daemon: %s", NFC_DAEMON_PATH)
 
     cache = MappingCache(CACHE_PATH)
     sonos_api = SonosAPI(SONOS_SPEAKER_NAME)
     sync = MappingSync(TONTRAEGER_SERVER, cache)
-    controller = PlaybackController(sonos_api, cache, sync)  # noqa: F841 — used by nfc_reader in phase 5
-    reader = RFIDReader()
+    controller = PlaybackController(sonos_api, cache, sync)
 
-    # Initial sync: fetch mappings from server before starting the main loop
-    logger.info("Performing initial sync...")
-    sync.poll()
+    # systemd sends SIGTERM to stop services. Cancel all tasks so the NFC daemon
+    # child process gets cleaned up (via the finally block in nfc_reader).
+    loop = asyncio.get_running_loop()
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    def shutdown() -> None:
-        logger.info("Shutdown requested")
+    def _on_sigterm() -> None:
+        logger.info("SIGTERM received, shutting down")
         for task in asyncio.all_tasks(loop):
             task.cancel()
 
-    loop.add_signal_handler(signal.SIGINT, shutdown)
-    loop.add_signal_handler(signal.SIGTERM, shutdown)
+    loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
 
-    async def run() -> None:
-        try:
-            await sync.run()
-        except asyncio.CancelledError:
-            logger.info("Tasks cancelled, shutting down")
+    # Try to fetch mappings from the server before we start listening for tags.
+    # If the server is down, that's fine — we'll use whatever's in the cache.
+    try:
+        await loop.run_in_executor(None, sync.poll)
+    except Exception as e:
+        logger.warning("Initial sync failed: %s", e)
+
+    # Start polling for mapping updates and looking for the Sonos speaker.
+    sync_task = asyncio.create_task(sync.run())
+    discover_task = asyncio.create_task(sonos_api.discover())
 
     try:
-        loop.run_until_complete(run())
+        await nfc_reader(controller, NFC_DAEMON_PATH)
+    except asyncio.CancelledError:
+        logger.info("Shutting down")
+    finally:
+        sync_task.cancel()
+        discover_task.cancel()
+        # Suppress errors from cancelled background tasks.
+        for task in (sync_task, discover_task):
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+def run() -> None:
+    try:
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Interrupted")
-    finally:
-        reader.cleanup()
-        loop.close()
-        logger.info("tontraeger client stopped")
-        # The RFID reader thread (reader.read_tag) may be stuck in a blocking
-        # SPI call that cannot be interrupted.  Since ThreadPoolExecutor uses
-        # non-daemon threads, the process would hang forever waiting for that
-        # thread.  Force-exit after all cleanup is done.
-        os._exit(0)
+    logger.info("tontraeger client stopped")
+    # Force-exit. Sonos and HTTP calls run in background threads that may
+    # still be blocked on network I/O. Without this, the process hangs.
+    os._exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    run()
