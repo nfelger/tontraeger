@@ -3,7 +3,8 @@
     "allow": [
       "Bash(uv run pytest:*)",
       "Bash(make:*)",
-      "Bash(/usr/bin/make:*)"
+      "Bash(/usr/bin/make:*)",
+      "Bash(uv run mypy:*)"
     ]
   }
 }

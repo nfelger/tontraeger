@@ -5,7 +5,7 @@ import signal
 
 from tontraeger_client.cache import MappingCache
 from tontraeger_client.config import CACHE_PATH, SONOS_SPEAKER_NAME, TONTRAEGER_SERVER
-from tontraeger_client.control import PlaybackController, main_loop
+from tontraeger_client.control import PlaybackController
 from tontraeger_client.sonos_api import SonosAPI
 from tontraeger_client.sync import MappingSync
 
@@ -29,7 +29,7 @@ def main() -> None:
     cache = MappingCache(CACHE_PATH)
     sonos_api = SonosAPI(SONOS_SPEAKER_NAME)
     sync = MappingSync(TONTRAEGER_SERVER, cache)
-    controller = PlaybackController(sonos_api, cache, sync)
+    controller = PlaybackController(sonos_api, cache, sync)  # noqa: F841 — used by nfc_reader in phase 5
     reader = RFIDReader()
 
     # Initial sync: fetch mappings from server before starting the main loop
@@ -48,11 +48,8 @@ def main() -> None:
     loop.add_signal_handler(signal.SIGTERM, shutdown)
 
     async def run() -> None:
-        sync_task = asyncio.get_running_loop().run_in_executor(None, sync.run)
-        rfid_task = asyncio.ensure_future(main_loop(reader, controller))
-
         try:
-            await asyncio.gather(sync_task, rfid_task)
+            await sync.run()
         except asyncio.CancelledError:
             logger.info("Tasks cancelled, shutting down")
 

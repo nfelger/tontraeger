@@ -1,7 +1,9 @@
-import pytest
 import asyncio
+
+import pytest
+
 from tontraeger_client.cache import MappingCache
-from tontraeger_client.control import PlaybackController, STOP_COMMAND, main_loop
+from tontraeger_client.control import PlaybackController, nfc_reader
 
 
 class DummySonosAPI:
@@ -29,102 +31,393 @@ def cache(tmp_path):
     return MappingCache(str(tmp_path / "mappings.json"))
 
 
-@pytest.mark.asyncio
-async def test_handle_tag_plays_uri(cache) -> None:
-    cache.update([{"tag_uid": "tag1", "media_uri": "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0", "name": ""}])
-    sonos_api = DummySonosAPI()
-    controller = PlaybackController(sonos_api, cache)
-
-    await controller.handle_tag("tag1")
-    assert sonos_api.played_uri == "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0"
-    assert not sonos_api.stopped
+# ── handle_present ───────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_handle_tag_stops_playback(cache) -> None:
-    cache.update([{"tag_uid": "tag2", "media_uri": STOP_COMMAND, "name": ""}])
-    sonos_api = DummySonosAPI()
-    controller = PlaybackController(sonos_api, cache)
+async def test_handle_present_plays_uri(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-sonosapi-radio:s25111", "name": ""}])
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
 
-    await controller.handle_tag("tag2")
-    assert sonos_api.stopped
-    assert sonos_api.played_uri is None
+    await controller.handle_present("04:ab:cd:12:34:56:78")
 
-
-@pytest.mark.asyncio
-async def test_handle_tag_unknown_does_not_raise(cache) -> None:
-    """Unknown tags no longer raise — they return silently."""
-    sonos_api = DummySonosAPI()
-    controller = PlaybackController(sonos_api, cache)
-
-    # Should not raise
-    await controller.handle_tag("missing")
-    assert sonos_api.played_uri is None
-    assert not sonos_api.stopped
+    assert sonos.played_uri == "x-sonosapi-radio:s25111"
+    assert not sonos.stopped
 
 
 @pytest.mark.asyncio
-async def test_handle_tag_unknown_reports_to_sync(cache) -> None:
-    """When sync is provided, unknown tags are reported to the server."""
-    sonos_api = DummySonosAPI()
+async def test_handle_present_unknown_reports(cache) -> None:
+    """Unknown tag fires report_unknown_tag as a background task."""
+    sonos = DummySonosAPI()
     sync = DummySync()
-    controller = PlaybackController(sonos_api, cache, sync=sync)
+    controller = PlaybackController(sonos, cache, sync=sync)
 
-    await controller.handle_tag("unknown_tag")
+    await controller.handle_present("unknown_tag")
+    # Let the fire-and-forget task run
+    await asyncio.sleep(0)
+
     assert sync.reported_tags == ["unknown_tag"]
+    assert sonos.played_uri is None
 
 
 @pytest.mark.asyncio
-async def test_handle_tag_unknown_without_sync(cache) -> None:
-    """Without sync, unknown tags are silently ignored (no crash)."""
-    sonos_api = DummySonosAPI()
-    controller = PlaybackController(sonos_api, cache, sync=None)
+async def test_handle_present_unknown_without_sync(cache) -> None:
+    """No crash when sync is None and tag is unknown."""
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache, sync=None)
 
-    # Should not raise
-    await controller.handle_tag("unknown_tag")
+    await controller.handle_present("unknown_tag")
+
+    assert sonos.played_uri is None
 
 
-class FakeRFIDReader:
-    def __init__(self, tags):
-        self.tags = tags
-        self.index = 0
+# ── handle_removed ───────────────────────────────────────
 
-    def read_tag(self) -> str:
-        if self.index < len(self.tags):
-            tag = self.tags[self.index]
-            self.index += 1
-            return tag
-        return None
 
-    def cleanup(self) -> None:
+@pytest.mark.asyncio
+async def test_handle_removed_pauses(cache) -> None:
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_removed("04:ab:cd:12:34:56:78")
+
+    assert sonos.stopped
+
+
+@pytest.mark.asyncio
+async def test_handle_removed_without_prior_present(cache) -> None:
+    """Removing a tag that was never placed doesn't crash."""
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_removed("04:ab:cd:12:34:56:78")
+
+    # stop_playback is a no-op when no speaker is known — but it was still called
+    assert sonos.stopped
+
+
+# ── nfc_reader ───────────────────────────────────────────
+
+
+class FakeStreamReader:
+    def __init__(self, lines: list[bytes]) -> None:
+        self._lines = list(lines)
+        self._index = 0
+
+    async def readline(self) -> bytes:
+        if self._index < len(self._lines):
+            line = self._lines[self._index]
+            self._index += 1
+            return line
+        return b""  # EOF
+
+
+class FakeProcess:
+    """Fake asyncio.subprocess.Process for testing nfc_reader."""
+
+    def __init__(self, lines: list[bytes]) -> None:
+        self.stdout = FakeStreamReader(lines)
+        self.pid = 12345
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+
+    async def wait(self) -> int:
+        self.returncode = 0
+        return 0
+
+    def terminate(self) -> None:
+        self.terminated = True
+        self.returncode = -15  # SIGTERM
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9  # SIGKILL
+
+
+async def _run_nfc_reader_with_fake_daemon(
+    cache,
+    lines: list[bytes],
+    sonos: DummySonosAPI | None = None,
+    sync: DummySync | None = None,
+    max_restarts: int = 0,
+) -> tuple[PlaybackController, DummySonosAPI, FakeProcess]:
+    """Run nfc_reader against a fake daemon that emits the given lines.
+
+    The fake daemon produces `lines` on stdout, then hits EOF.
+    After `max_restarts` restarts, raises CancelledError to stop the loop.
+    """
+    if sonos is None:
+        sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache, sync=sync)
+
+    proc = FakeProcess(lines)
+    restart_count = 0
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        nonlocal restart_count
+        if restart_count > max_restarts:
+            raise asyncio.CancelledError()
+        restart_count += 1
+        return proc
+
+    import tontraeger_client.control as control_module
+
+    # Speed up backoff sleep
+    async def instant_sleep(s: float) -> None:
         pass
 
+    old_fn = asyncio.create_subprocess_exec
+    old_sleep = asyncio.sleep
+    asyncio.create_subprocess_exec = fake_create_subprocess_exec  # type: ignore[assignment]
+    control_module.asyncio.sleep = instant_sleep  # type: ignore[attr-defined]
 
-class FakePlaybackController:
-    def __init__(self):
-        self.handled_tags = []
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await nfc_reader(controller, "/fake/nfc-daemon")
+    finally:
+        asyncio.create_subprocess_exec = old_fn  # type: ignore[assignment]
+        control_module.asyncio.sleep = old_sleep  # type: ignore[attr-defined]
 
-    async def handle_tag(self, tag: str) -> None:
-        self.handled_tags.append(tag)
-
-
-@pytest.mark.asyncio
-async def test_main_loop_no_duplicate():
-    tags = ['123', '456']
-    reader = FakeRFIDReader(tags)
-    controller = FakePlaybackController()
-
-    await main_loop(reader, controller, max_iterations=2)
-    await asyncio.sleep(0.1)
-    assert controller.handled_tags == ['123', '456']
+    return controller, sonos, proc
 
 
 @pytest.mark.asyncio
-async def test_main_loop_debounce_duplicate():
-    tags = ['123', '123', '456']
-    reader = FakeRFIDReader(tags)
-    controller = FakePlaybackController()
+async def test_nfc_reader_dispatches_present(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": ""}])
+    lines = [b"PRESENT 04:ab:cd:12:34:56:78\n"]
 
-    await main_loop(reader, controller, max_iterations=2)
-    await asyncio.sleep(0.1)
-    assert controller.handled_tags == ['123', '456']
+    _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
+
+    assert sonos.played_uri == "x-radio:test"
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_dispatches_removed(cache) -> None:
+    lines = [b"REMOVED 04:ab:cd:12:34:56:78\n"]
+
+    _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
+
+    assert sonos.stopped
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_restarts_on_eof(cache) -> None:
+    """Daemon exit (EOF) triggers restart with backoff."""
+    restart_count = 0
+
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    async def counting_subprocess_exec(*args, **kwargs):
+        nonlocal restart_count
+        restart_count += 1
+        if restart_count >= 3:
+            raise asyncio.CancelledError()
+        return FakeProcess([])  # immediate EOF
+
+    import tontraeger_client.control as control_module
+
+    async def instant_sleep(s: float) -> None:
+        pass
+
+    old_fn = asyncio.create_subprocess_exec
+    old_sleep = asyncio.sleep
+    asyncio.create_subprocess_exec = counting_subprocess_exec  # type: ignore[assignment]
+    control_module.asyncio.sleep = instant_sleep  # type: ignore[attr-defined]
+
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await nfc_reader(controller, "/fake/nfc-daemon")
+    finally:
+        asyncio.create_subprocess_exec = old_fn  # type: ignore[assignment]
+        control_module.asyncio.sleep = old_sleep  # type: ignore[attr-defined]
+
+    assert restart_count == 3
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_terminates_child_on_exit(cache) -> None:
+    """When cancelled while daemon is still running, terminate() is called."""
+
+    class HangingProcess(FakeProcess):
+        """A process that blocks on readline forever (simulating a live daemon)."""
+
+        def __init__(self) -> None:
+            super().__init__([])
+            self.stdout = self  # type: ignore[assignment]
+            self.returncode = None  # still running
+
+        async def readline(self) -> bytes:
+            # Block until cancelled — simulates waiting for daemon output
+            await asyncio.sleep(999)
+            return b""  # unreachable
+
+        async def wait(self) -> int:
+            # After terminate(), immediately return
+            self.returncode = -15
+            return -15
+
+    proc = HangingProcess()
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    old_fn = asyncio.create_subprocess_exec
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        return proc
+
+    asyncio.create_subprocess_exec = fake_create_subprocess_exec  # type: ignore[assignment]
+
+    try:
+        task = asyncio.create_task(nfc_reader(controller, "/fake/nfc-daemon"))
+        # Let the reader start and block on readline
+        await asyncio.sleep(0)
+        # Cancel from outside (simulates SIGTERM)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        asyncio.create_subprocess_exec = old_fn  # type: ignore[assignment]
+
+    assert proc.terminated
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_backoff_resets_after_output(cache) -> None:
+    """Backoff resets after the first line from the daemon, not just after spawn."""
+    sleep_values: list[float] = []
+    call_count = 0
+
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    async def fake_subprocess_exec(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First run: emit a line then EOF — should reset backoff
+            return FakeProcess([b"REMOVED 04:00:00:00:00:00:00\n"])
+        elif call_count == 2:
+            # Second run: immediate EOF — should use reset backoff (1s)
+            return FakeProcess([])
+        else:
+            raise asyncio.CancelledError()
+
+    import tontraeger_client.control as control_module
+
+    old_fn = asyncio.create_subprocess_exec
+    old_sleep = asyncio.sleep
+    asyncio.create_subprocess_exec = fake_subprocess_exec  # type: ignore[assignment]
+
+    async def tracking_sleep(s: float) -> None:
+        sleep_values.append(s)
+
+    control_module.asyncio.sleep = tracking_sleep  # type: ignore[attr-defined]
+
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await nfc_reader(controller, "/fake/nfc-daemon")
+    finally:
+        asyncio.create_subprocess_exec = old_fn  # type: ignore[assignment]
+        control_module.asyncio.sleep = old_sleep  # type: ignore[attr-defined]
+
+    # First restart sleep should be 1.0 (reset by output from run 1)
+    assert sleep_values[0] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_handler_error_continues(cache) -> None:
+    """A Sonos error in handle_present must not restart the daemon."""
+    cache.update([
+        {"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:first", "name": ""},
+        {"tag_uid": "04:bb:bb:bb:bb:bb:bb", "media_uri": "x-radio:second", "name": ""},
+    ])
+
+    sonos = DummySonosAPI()
+    call_count = 0
+    original_play_uri = sonos.play_uri
+
+    async def flaky_play(uri: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Sonos unreachable")
+        await original_play_uri(uri)
+
+    sonos.play_uri = flaky_play  # type: ignore[assignment]
+
+    lines = [
+        b"PRESENT 04:aa:aa:aa:aa:aa:aa\n",  # will fail
+        b"PRESENT 04:bb:bb:bb:bb:bb:bb\n",  # should still be dispatched
+    ]
+
+    _, _, _ = await _run_nfc_reader_with_fake_daemon(cache, lines, sonos=sonos)
+
+    # Second play should have succeeded despite first failing
+    assert sonos.played_uri == "x-radio:second"
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_malformed_line_logged(cache) -> None:
+    """Garbage lines are logged but don't crash the reader."""
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": ""}])
+    lines = [
+        b"GARBAGE nonsense\n",
+        b"\n",
+        b"PRESENT\n",  # missing UID
+        b"PRESENT 04:ab:cd:12:34:56:78\n",  # valid — should still work
+    ]
+
+    _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
+
+    assert sonos.played_uri == "x-radio:ok"
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_non_utf8_does_not_crash(cache) -> None:
+    """Binary garbage from the daemon is handled, not crashed on."""
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": ""}])
+    lines = [
+        b"\xff\xfe PRESENT garbage\n",  # invalid UTF-8
+        b"PRESENT 04:ab:cd:12:34:56:78\n",  # valid — should still work
+    ]
+
+    _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
+
+    assert sonos.played_uri == "x-radio:ok"
+
+
+@pytest.mark.asyncio
+async def test_nfc_reader_daemon_not_found(cache) -> None:
+    """Missing binary triggers backoff, not crash."""
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    sleep_values: list[float] = []
+    call_count = 0
+
+    import tontraeger_client.control as control_module
+
+    old_sleep = asyncio.sleep
+
+    async def tracking_sleep(s: float) -> None:
+        nonlocal call_count
+        sleep_values.append(s)
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError()
+
+    control_module.asyncio.sleep = tracking_sleep  # type: ignore[attr-defined]
+
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await nfc_reader(controller, "/nonexistent/nfc-daemon")
+    finally:
+        control_module.asyncio.sleep = old_sleep  # type: ignore[attr-defined]
+
+    # Should have retried with increasing backoff
+    assert len(sleep_values) == 2
+    assert sleep_values[0] == 1.0
+    assert sleep_values[1] == 2.0
