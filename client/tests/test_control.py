@@ -1,14 +1,12 @@
 import pytest
 import asyncio
-from unittest.mock import MagicMock
-from typing import Optional
 from tontraeger_client.cache import MappingCache
 from tontraeger_client.control import PlaybackController, STOP_COMMAND, main_loop
 
 
 class DummySonosAPI:
     def __init__(self) -> None:
-        self.played_uri: Optional[str] = None
+        self.played_uri: str | None = None
         self.stopped: bool = False
 
     async def play_uri(self, uri: str) -> None:
@@ -16,6 +14,14 @@ class DummySonosAPI:
 
     async def stop_playback(self) -> None:
         self.stopped = True
+
+
+class DummySync:
+    def __init__(self) -> None:
+        self.reported_tags: list[str] = []
+
+    async def report_unknown_tag(self, tag_uid: str) -> None:
+        self.reported_tags.append(tag_uid)
 
 
 @pytest.fixture
@@ -61,11 +67,11 @@ async def test_handle_tag_unknown_does_not_raise(cache) -> None:
 async def test_handle_tag_unknown_reports_to_sync(cache) -> None:
     """When sync is provided, unknown tags are reported to the server."""
     sonos_api = DummySonosAPI()
-    mock_sync = MagicMock()
-    controller = PlaybackController(sonos_api, cache, sync=mock_sync)
+    sync = DummySync()
+    controller = PlaybackController(sonos_api, cache, sync=sync)
 
     await controller.handle_tag("unknown_tag")
-    mock_sync.report_unknown_tag.assert_called_once_with("unknown_tag")
+    assert sync.reported_tags == ["unknown_tag"]
 
 
 @pytest.mark.asyncio

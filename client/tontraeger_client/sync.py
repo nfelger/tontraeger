@@ -1,5 +1,5 @@
+import asyncio
 import logging
-import time
 
 import requests
 
@@ -44,20 +44,32 @@ class MappingSync:
         if etag:
             self._etag = etag
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.warning("Invalid JSON in server response")
+            return False
         self._cache.update(data.get("mappings", []))
         return True
 
-    def report_unknown_tag(self, tag_uid: str) -> None:
-        """POST /api/unknown-tags. Fire-and-forget (log errors, don't crash)."""
-        url = f"{self._server_url}/api/unknown-tags"
+    async def report_unknown_tag(self, tag_uid: str) -> None:
+        """Tell the server about an unrecognized tag. Errors are logged, not raised."""
+        loop = asyncio.get_running_loop()
         try:
-            requests.post(url, json={"tag_uid": tag_uid}, timeout=5)
-        except requests.RequestException as e:
+            await loop.run_in_executor(None, self._post_unknown_tag, tag_uid)
+        except Exception as e:
             logger.warning("Failed to report unknown tag %s: %s", tag_uid, e)
 
-    def run(self, interval: float = 10.0) -> None:
-        """Blocking loop: poll every `interval` seconds. Runs forever."""
+    def _post_unknown_tag(self, tag_uid: str) -> None:
+        """POST /api/unknown-tags. Blocking (network I/O)."""
+        url = f"{self._server_url}/api/unknown-tags"
+        resp = requests.post(url, json={"tag_uid": tag_uid}, timeout=5)
+        if resp.status_code >= 400:
+            logger.warning("Server rejected unknown tag report: %s", resp.status_code)
+
+    async def run(self, interval: float = 10.0) -> None:
+        """Poll the server for mapping updates in a loop. Runs forever."""
+        loop = asyncio.get_running_loop()
         while True:
-            self.poll()
-            time.sleep(interval)
+            await loop.run_in_executor(None, self.poll)
+            await asyncio.sleep(interval)

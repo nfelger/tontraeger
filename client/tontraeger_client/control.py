@@ -39,7 +39,7 @@ class PlaybackController:
         if uri is None:
             logger.info("Unknown tag: %s", tag_uid)
             if self.sync is not None:
-                self.sync.report_unknown_tag(tag_uid)
+                await self.sync.report_unknown_tag(tag_uid)
             return
         if uri.upper() == STOP_COMMAND:
             await self.sonos_api.stop_playback()

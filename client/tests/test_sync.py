@@ -1,5 +1,8 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
+import requests
+
 from tontraeger_client.cache import MappingCache
 from tontraeger_client.sync import MappingSync
 
@@ -63,7 +66,6 @@ class TestPoll:
 
     @patch("tontraeger_client.sync.requests.get")
     def test_connection_error_does_not_crash(self, mock_get, sync, cache):
-        import requests
         mock_get.side_effect = requests.ConnectionError("server down")
 
         result = sync.poll()
@@ -109,19 +111,33 @@ class TestPoll:
 
     @patch("tontraeger_client.sync.requests.get")
     def test_timeout_error_does_not_crash(self, mock_get, sync):
-        import requests
         mock_get.side_effect = requests.Timeout("timed out")
 
         result = sync.poll()
         assert result is False
 
+    @patch("tontraeger_client.sync.requests.get")
+    def test_malformed_json_does_not_crash(self, mock_get, sync, cache):
+        """Server returns 200 with invalid JSON body — sync loop continues."""
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.headers = {}
+        resp.json.side_effect = ValueError("No JSON object could be decoded")
+        mock_get.return_value = resp
+
+        result = sync.poll()
+
+        assert result is False
+        assert cache.all_mappings() == {}
+
 
 class TestReportUnknownTag:
+    @pytest.mark.asyncio
     @patch("tontraeger_client.sync.requests.post")
-    def test_posts_tag_uid(self, mock_post, sync):
+    async def test_posts_tag_uid(self, mock_post, sync):
         mock_post.return_value = _mock_response(200)
 
-        sync.report_unknown_tag("tag123")
+        await sync.report_unknown_tag("tag123")
 
         mock_post.assert_called_once_with(
             "http://server.local:5000/api/unknown-tags",
@@ -129,10 +145,44 @@ class TestReportUnknownTag:
             timeout=5,
         )
 
+    @pytest.mark.asyncio
     @patch("tontraeger_client.sync.requests.post")
-    def test_connection_error_does_not_crash(self, mock_post, sync):
-        import requests
+    async def test_connection_error_does_not_crash(self, mock_post, sync):
         mock_post.side_effect = requests.ConnectionError("server down")
 
         # Should not raise
-        sync.report_unknown_tag("tag123")
+        await sync.report_unknown_tag("tag123")
+
+
+class _StopLoop(Exception):
+    """Sentinel exception to break out of the infinite run() loop in tests."""
+
+
+class TestRun:
+    @pytest.mark.asyncio
+    async def test_run_calls_poll_periodically(self, sync, monkeypatch):
+        """run() calls poll and sleeps in a loop."""
+        poll_count = 0
+        sleep_intervals: list[float] = []
+
+        def counting_poll() -> bool:
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count >= 3:
+                raise _StopLoop()
+            return False
+
+        sync.poll = counting_poll  # type: ignore[assignment]
+
+        async def tracking_sleep(s: float) -> None:
+            sleep_intervals.append(s)
+
+        import tontraeger_client.sync as sync_module
+
+        monkeypatch.setattr(sync_module.asyncio, "sleep", tracking_sleep)
+
+        with pytest.raises(_StopLoop):
+            await sync.run(interval=7.0)
+
+        assert poll_count == 3
+        assert sleep_intervals == [7.0, 7.0]
