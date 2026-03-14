@@ -14,7 +14,7 @@ Dependencies managed with **uv**.
 
 ## Verifying Changes
 
-IMPORTANT: run `make check` before committing — this runs lint, typecheck, and test across both components.
+IMPORTANT: run `/usr/bin/make check` before committing — this runs lint, typecheck, and test across both components.
 
 Single test file: `cd server && uv run pytest tests/test_web.py`
 Single test: `cd server && uv run pytest tests/test_web.py::test_add_mapping`
