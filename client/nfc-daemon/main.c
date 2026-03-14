@@ -106,7 +106,7 @@ int main(void)
         /* Block until a tag arrives. */
         int ret = nfc_initiator_select_passive_target(dev, mod, NULL, 0, &target);
 
-        if (ret < 0) {
+        if (ret < 0 && ret != NFC_ETIMEOUT) {
             /* Device error — close, reopen with backoff. */
             fprintf(stderr, "nfc-daemon: select failed: %s, reopening device\n",
                     nfc_strerror(dev));
@@ -115,7 +115,7 @@ int main(void)
             continue;
         }
 
-        if (ret == 0) {
+        if (ret <= 0) {
             /* No target found (timeout or empty field). Try again. */
             msleep(POLL_INTERVAL_MS);
             continue;
