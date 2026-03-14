@@ -53,22 +53,36 @@ No schema changes are needed — the existing database works as-is.
 ## Client Setup (Raspberry Pi)
 
 ### Hardware
-- Wire up the RFID-RC522 reader as described here:
-  https://tutorials-raspberrypi.de/raspberry-pi-rfid-rc522-tueroeffner-nfc/
-  (wiring only — don't follow the rest of the tutorial)
+
+Wire up the PN532 NFC reader to the Raspberry Pi via I2C:
+
+| PN532 pin | Pi pin | Notes |
+|-----------|--------|-------|
+| VCC | Pin 2 (5V) | **Must be 5V, not 3.3V** |
+| GND | Pin 6 (GND) | |
+| SDA | Pin 3 (GPIO2 / SDA1) | |
+| SCL | Pin 5 (GPIO3 / SCL1) | |
+
+Set the PN532 DIP switches to I2C mode: **SW1 = ON, SW2 = OFF**.
 
 ### Pi configuration
 ```bash
-# Enable SPI interface:
-sudo raspi-config   # → Interface Options → SPI → Enable
+# Enable I2C interface:
+sudo raspi-config   # → Interface Options → I2C → Enable
 sudo reboot
 
-# Install Python headers:
-sudo apt update && sudo apt install python3.11-dev make
+# Install dependencies:
+sudo apt update && sudo apt install libnfc-dev libnfc-bin make
+
+# Verify the PN532 is detected:
+i2cdetect -y 1      # should show address 24
+nfc-list             # should show "PN532 board via I2C"
 
 # Install uv:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+libnfc's autoscan finds the PN532 automatically — no `/etc/nfc/libnfc.conf` changes needed.
 
 ### Configure and sync the client
 
@@ -81,6 +95,7 @@ Edit `.env` on your development machine with the client variables:
 - `TONTRAEGER_SERVER` — server URL (default: `http://tontraeger.local:3000`)
 - `SONOS_SPEAKER_NAME` — Sonos speaker to play on (default: `Wohnzimmer`)
 - `TONTRAEGER_CACHE_PATH` — local mapping cache on the Pi
+- `NFC_DAEMON_PATH` — path to the NFC daemon binary (default: `/usr/local/bin/nfc-daemon`)
 
 Then sync the client code to the Pi:
 

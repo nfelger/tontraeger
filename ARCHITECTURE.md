@@ -2,7 +2,7 @@
 
 ## Design Principle
 
-The critical path — tap card, play music — must work without any network dependency beyond
+The critical path — place card, play music — must work without any network dependency beyond
 the Sonos speaker itself. The server is a convenience for managing mappings, not a runtime
 requirement for playback.
 
@@ -20,18 +20,18 @@ Tag mapping management, distribution, and mapping workflow support:
   of unrecognized tag scans from clients, displayed in the web UI to simplify creating new
   mappings. Lost on server restart (acceptable — tags can be re-scanned).
 
-## Client (Raspberry Pi with RFID hardware)
+## Client (Raspberry Pi with PN532 NFC reader)
 
-Tag reading, local lookup, and direct Sonos control:
+Tag presence detection, local lookup, and direct Sonos control:
 
-- **RFID Reader** (MFRC522) — reads tags via SPI/GPIO
+- **NFC Daemon** (C, libnfc) — detects PN532 tag presence via I2C, emits `PRESENT`/`REMOVED`
+  events on stdout. Spawned by Python as a child process.
+- **PlaybackController** — reacts to presence events: place = play, remove = pause
 - **Local Mapping Cache** — in-memory dict for O(1) lookup, backed by a JSON file on disk
   for persistence across reboots
-- **Sonos API** (SoCo) — discovers and controls its speaker directly
+- **Sonos API** (SoCo, async) — lazy discovery with auto-rediscovery on error
 - **HTTP Sync** — polls `GET /api/mappings` every 10 seconds with `If-None-Match` (ETag).
-  Reports unknown tags via `POST /api/unknown-tags`. Uses standard HTTP — no new
-  dependencies beyond `requests` (or stdlib `urllib`).
-- **Debouncing** — 5-second duplicate suppression, client-side
+  Reports unknown tags via `POST /api/unknown-tags`.
 
 ## Data Flow
 
@@ -64,23 +64,24 @@ Tag reading, local lookup, and direct Sonos control:
                         │    ▲                              │
                         │    │ lookup                       │
                         │    │                              │
-                        │  RFID Reader ──► Control Loop     │
-                        │                      │            │
+                        │  NFC Daemon ──► PlaybackController │
+                        │  (C, PN532)          │            │
                         │                      ▼            │
                         │                  SonosAPI ──► 🔊  │
-                        │                  (SoCo)           │
+                        │                  (SoCo, async)    │
                         └───────────────────────────────────┘
 ```
 
 ## Playback Path (no server dependency)
 
-1. User taps RFID card on reader
-2. `RFIDReader.read_tag()` returns tag UID
-3. Debounce check (5-second window, client-side)
-4. Lookup in local in-memory dict
-5. If found and URI is "STOP": `SonosAPI.stop_playback()`
-6. If found: `SonosAPI.play_uri(uri)`
-7. If not found: log locally, report to server via `POST /api/unknown-tags`
+1. User places NFC tag on reader
+2. C daemon detects tag, emits `PRESENT <uid>` on stdout
+3. Python reads the event, looks up UID in local cache
+4. If found: `await SonosAPI.play_uri(uri)`
+5. If not found: log locally, fire-and-forget report to server via `POST /api/unknown-tags`
+6. User removes tag from reader
+7. C daemon detects removal (3 consecutive poll misses), emits `REMOVED <uid>`
+8. Python reads the event: `await SonosAPI.stop_playback()`
 
 ## Mapping Sync Path
 
@@ -97,9 +98,9 @@ and survives server restarts — no version counter needed.
 ## Client Boot Sequence
 
 1. Load `mappings.json` from disk into in-memory dict (if file exists)
-2. Start RFID reading loop immediately (works from cached mappings)
-3. Concurrently, start polling `http://tontraeger.local:3000/api/mappings`
-4. On first successful poll: update dict and disk cache
+2. Best-effort initial sync (single poll, failure is non-fatal)
+3. Start background tasks: `sync.run()` (polls every 10s), `sonos_api.discover()`
+4. Start `nfc_reader` coroutine — spawns C daemon, processes events forever
 5. If server unreachable: continue with cached mappings, keep polling
 
 ## New Mapping Workflow
@@ -107,7 +108,7 @@ and survives server restarts — no version counter needed.
 1. User plays something on Sonos (via Spotify app, etc.)
 2. User opens tontraeger web UI, clicks "Now Playing"
 3. Web UI shows speaker picker (discovered via SoCo on server), fetches current track URI
-4. User taps new RFID card on any client reader
+4. User places new NFC tag on any client reader
 5. Client reports unknown tag UID to server via `POST /api/unknown-tags`
 6. Web UI shows the UID in "recently scanned unknown tags"
 7. User creates mapping: tag UID + media URI + name
@@ -127,7 +128,8 @@ mapping is most likely being created.
 | Sync mechanism            | Client polls every 10s with ETag for conditional fetch   |
 | Sync granularity          | Full snapshot (data is tiny, ~5KB)                       |
 | Change detection          | Content hash as ETag (stateless, survives server restart) |
-| Debouncing                | Client-side, 5-second window                             |
+| Tag hardware              | PN532 via libnfc (I2C)                                   |
+| NFC daemon                | C child process, PRESENT/REMOVED protocol on stdout      |
 | Server discovery          | mDNS (`tontraeger.local`)                                  |
 | Authentication            | None (trusted home network)                              |
 | Tag mappings scope        | Global (shared across all clients)                       |
@@ -150,13 +152,12 @@ GET /api/mappings
   Body:
   {
     "mappings": [
-      {"tag_uid": "123456789", "media_uri": "https://open.spotify.com/album/...", "name": "Kids Mix"},
-      {"tag_uid": "987654321", "media_uri": "STOP", "name": "Stop Card"}
+      {"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "https://open.spotify.com/album/...", "name": "Kids Mix"}
     ]
   }
 
 POST /api/unknown-tags
-  Request body: {"tag_uid": "555555555"}
+  Request body: {"tag_uid": "04:ab:cd:12:34:56:78"}
   Response: 200 OK
 
 GET /api/unknown-tags
@@ -164,7 +165,7 @@ GET /api/unknown-tags
   Body:
   {
     "tags": [
-      {"tag_uid": "555555555", "first_seen": "2025-03-01T14:30:00Z", "last_seen": "2025-03-01T14:30:05Z", "scan_count": 3}
+      {"tag_uid": "04:ab:cd:12:34:56:78", "first_seen": "2025-03-01T14:30:00Z", "last_seen": "2025-03-01T14:30:05Z", "scan_count": 3}
     ]
   }
 ```

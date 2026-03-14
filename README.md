@@ -1,7 +1,7 @@
 # tontraeger
 
-A Raspberry Pi-based Sonos controller that uses RFID tags to trigger music playback. Tap a
-card to play an album; tap a stop card to pause.
+A Raspberry Pi-based Sonos controller that uses NFC tags to trigger music playback. Place a
+card on the reader to play; remove it to pause.
 
 ## Architecture
 
@@ -17,9 +17,9 @@ server. See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
            │               │                      │
          JSON API ──────── ETag              Mapping Cache ◄── mappings.json
                                                   │
-                                             RFID Reader ──► Control Loop
-                                                              │
-                                                          SonosAPI ──► 🔊
+                                             NFC Daemon ──► PlaybackController
+                                          (C, PN532/libnfc)       │
+                                                              SonosAPI ──► 🔊
 ```
 
 ## Setup
@@ -38,7 +38,7 @@ make install-client-service  # install + enable systemd unit on the Pi
 1. Play something on Sonos (via the Spotify app, etc.)
 2. Open the web UI at `http://tontraeger.local:3000`
 3. Click **Now Playing** and pick your speaker — the URI is pre-filled
-4. Tap the RFID card you want to assign — the client reports the unknown tag to the server
+4. Place the NFC tag you want to assign — the client reports the unknown tag to the server
    and it appears in the **Recently Scanned** list
 5. Click the tag UID to pre-fill it, enter a name, click **Add Mapping**
 6. The card works within 10 seconds (next sync cycle)
@@ -57,6 +57,7 @@ All configuration lives in `.env` (copy from `.env.sample`):
 | `PI_UV_BIN_DIR` | client | `/home/pi/.local/bin` | Path to the `uv` binary on the Pi |
 | `TONTRAEGER_SERVER` | client | `http://tontraeger.local:3000` | Server URL |
 | `TONTRAEGER_CACHE_PATH` | client | `/home/pi/tontraeger/client/mappings.json` | Local mapping cache path on Pi |
+| `NFC_DAEMON_PATH` | client | `/usr/local/bin/nfc-daemon` | Path to the NFC daemon binary |
 
 ## Development
 
