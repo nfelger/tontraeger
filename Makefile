@@ -59,8 +59,9 @@ sync-client: ## Sync client code + .env to Pi via rsync and restart service
 	ssh $(PI_HOST) "mkdir -p $(PI_DIR)/client/nfc-daemon"
 	git ls-files -oc --exclude-standard client/ | rsync -av --files-from=- ./ $(PI_HOST):$(PI_DIR)/
 	scp client/.env $(PI_HOST):$(PI_DIR)/client/.env
+	ssh $(PI_HOST) 'sudo systemctl stop tontraeger-client' || true
 	ssh $(PI_HOST) 'cd $(PI_DIR)/client/nfc-daemon && make && sudo cp nfc-daemon /usr/local/bin/'
-	ssh $(PI_HOST) 'sudo systemctl restart tontraeger-client' || true
+	ssh $(PI_HOST) 'sudo systemctl start tontraeger-client' || true
 
 install-client-service: ## Install the systemd service file on the Pi
 	sed 's|__PI_DIR__|$(PI_DIR)|g' client/tontraeger-client.service \
