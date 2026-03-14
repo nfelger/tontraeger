@@ -4,7 +4,7 @@
 
 tontraeger uses a client-server architecture:
 - **Server**: Flask web UI + JSON API, runs in a Docker container (any machine on your LAN)
-- **Client**: RFID reader + Sonos playback, runs on a Raspberry Pi via systemd
+- **Client**: NFC reader + Sonos playback, runs on a Raspberry Pi via systemd
 
 ## Server Setup
 
@@ -54,35 +54,45 @@ No schema changes are needed — the existing database works as-is.
 
 ### Hardware
 
-Wire up the PN532 NFC reader to the Raspberry Pi via I2C:
+Wire up the PN532 NFC reader to the Raspberry Pi via UART:
 
 | PN532 pin | Pi pin | Notes |
 |-----------|--------|-------|
 | VCC | Pin 2 (5V) | **Must be 5V, not 3.3V** |
 | GND | Pin 6 (GND) | |
-| SDA | Pin 3 (GPIO2 / SDA1) | |
-| SCL | Pin 5 (GPIO3 / SCL1) | |
+| SDA (= TX in UART mode) | Pin 10 (GPIO15 / RXD) | PN532 TX → Pi RX |
+| SCL (= RX in UART mode) | Pin 8 (GPIO14 / TXD) | PN532 RX → Pi TX |
 
-Set the PN532 DIP switches to I2C mode: **SW1 = ON, SW2 = OFF**.
+Set the PN532 DIP switches to UART mode: **SW1 = OFF, SW2 = OFF**.
+
+Note: The SDA/SCL pins on the PN532 board double as UART TX/RX when the DIP switches
+are set to UART mode. TX and RX must be cross-wired (PN532 TX → Pi RX and vice versa).
 
 ### Pi configuration
 ```bash
-# Enable I2C interface:
-sudo raspi-config   # → Interface Options → I2C → Enable
+# Disable serial console, enable serial hardware:
+sudo raspi-config
+#   → Interface Options → Serial Port
+#   → "Login shell over serial?" → No
+#   → "Serial port hardware enabled?" → Yes
 sudo reboot
 
 # Install dependencies:
 sudo apt update && sudo apt install libnfc-dev libnfc-bin make
 
+# Configure libnfc for UART:
+sudo tee /etc/nfc/libnfc.conf > /dev/null << 'EOF'
+allow_autoscan = false
+device.name = "PN532"
+device.connstring = "pn532_uart:/dev/serial0"
+EOF
+
 # Verify the PN532 is detected:
-i2cdetect -y 1      # should show address 24
-nfc-list             # should show "PN532 board via I2C"
+nfc-list             # should show "NFC device: PN532 ... opened"
 
 # Install uv:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-
-libnfc's autoscan finds the PN532 automatically — no `/etc/nfc/libnfc.conf` changes needed.
 
 ### Configure and sync the client
 

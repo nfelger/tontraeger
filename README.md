@@ -6,8 +6,8 @@ card on the reader to play; remove it to pause.
 ## Architecture
 
 A **server** (Flask + SQLite, Docker) manages tag-to-URI mappings via a web UI and JSON API.
-A **client** (Raspberry Pi with RFID hardware) reads tags, looks up URIs in a local cache,
-and plays directly on Sonos. The critical path — tap card, play music — works without the
+A **client** (Raspberry Pi with PN532 NFC reader) reads tags, looks up URIs in a local cache,
+and plays directly on Sonos. The critical path — place card, play music — works without the
 server. See [ARCHITECTURE.md](ARCHITECTURE.md) for full design details.
 
 ```

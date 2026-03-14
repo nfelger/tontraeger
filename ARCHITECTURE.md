@@ -24,7 +24,7 @@ Tag mapping management, distribution, and mapping workflow support:
 
 Tag presence detection, local lookup, and direct Sonos control:
 
-- **NFC Daemon** (C, libnfc) — detects PN532 tag presence via I2C, emits `PRESENT`/`REMOVED`
+- **NFC Daemon** (C, libnfc) — detects PN532 tag presence via UART, emits `PRESENT`/`REMOVED`
   events on stdout. Spawned by Python as a child process.
 - **PlaybackController** — reacts to presence events: place = play, remove = pause
 - **Local Mapping Cache** — in-memory dict for O(1) lookup, backed by a JSON file on disk
@@ -128,7 +128,7 @@ mapping is most likely being created.
 | Sync mechanism            | Client polls every 10s with ETag for conditional fetch   |
 | Sync granularity          | Full snapshot (data is tiny, ~5KB)                       |
 | Change detection          | Content hash as ETag (stateless, survives server restart) |
-| Tag hardware              | PN532 via libnfc (I2C)                                   |
+| Tag hardware              | PN532 via libnfc (UART)                                  |
 | NFC daemon                | C child process, PRESENT/REMOVED protocol on stdout      |
 | Server discovery          | mDNS (`tontraeger.local`)                                  |
 | Authentication            | None (trusted home network)                              |
