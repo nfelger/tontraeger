@@ -50,6 +50,13 @@ class MappingCache:
             return None
         return entry[0]
 
+    def get_name(self, tag_uid: str) -> Optional[str]:
+        """Return the name for a tag, or None if not cached."""
+        entry = self._mappings.get(tag_uid)
+        if entry is None:
+            return None
+        return entry[1]
+
     def update(self, mappings: list[dict]) -> None:
         """Replace all cached mappings and persist to disk atomically."""
         self._mappings = self._parse(mappings)

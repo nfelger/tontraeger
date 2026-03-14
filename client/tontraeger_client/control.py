@@ -46,10 +46,14 @@ class PlaybackController:
                 # Store a reference so the task isn't garbage-collected mid-execution.
                 self._pending_report = asyncio.create_task(self.sync.report_unknown_tag(tag_uid))
             return
+        name = self.cache.get_name(tag_uid) or tag_uid
+        logger.info("Playing %s (%s)", name, uri)
         await self.sonos_api.play_uri(uri)
 
     async def handle_removed(self, tag_uid: str) -> None:
         """A tag was removed from the reader. Pause playback."""
+        name = self.cache.get_name(tag_uid) or tag_uid
+        logger.info("Pausing (%s removed)", name)
         await self.sonos_api.stop_playback()
 
 
