@@ -11,7 +11,7 @@ COPY tontraeger_server/ tontraeger_server/
 
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 5000
+EXPOSE 3000
 
 VOLUME /app/data
 

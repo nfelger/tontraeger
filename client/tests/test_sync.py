@@ -14,7 +14,7 @@ def cache(tmp_path):
 
 @pytest.fixture
 def sync(cache):
-    return MappingSync("http://server.local:5000", cache)
+    return MappingSync("http://server.local:3000", cache)
 
 
 def _mock_response(status_code=200, json_data=None, headers=None):
@@ -163,7 +163,7 @@ class TestReportUnknownTag:
         await sync.report_unknown_tag("tag123")
 
         mock_post.assert_called_once_with(
-            "http://server.local:5000/api/unknown-tags",
+            "http://server.local:3000/api/unknown-tags",
             json={"tag_uid": "tag123"},
             timeout=5,
         )

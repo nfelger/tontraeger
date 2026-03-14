@@ -6,7 +6,7 @@ The critical path — tap card, play music — must work without any network dep
 the Sonos speaker itself. The server is a convenience for managing mappings, not a runtime
 requirement for playback.
 
-## Server (runs as a container, single Flask process, port 5000)
+## Server (runs as a container, single Flask process, port 3000)
 
 Tag mapping management, distribution, and mapping workflow support:
 
@@ -37,7 +37,7 @@ Tag reading, local lookup, and direct Sonos control:
 
 ```
                         ┌──────────────────────────────────┐
-                        │        SERVER (Flask :5000)       │
+                        │        SERVER (Flask :3000)       │
                         │                                   │
                         │  Web UI ◄────► TagMapper (SQLite) │
                         │    │               │              │
@@ -98,7 +98,7 @@ and survives server restarts — no version counter needed.
 
 1. Load `mappings.json` from disk into in-memory dict (if file exists)
 2. Start RFID reading loop immediately (works from cached mappings)
-3. Concurrently, start polling `http://tontraeger.local:5000/api/mappings`
+3. Concurrently, start polling `http://tontraeger.local:3000/api/mappings`
 4. On first successful poll: update dict and disk cache
 5. If server unreachable: continue with cached mappings, keep polling
 
@@ -136,7 +136,7 @@ mapping is most likely being created.
 | Unknown tag inbox         | In-memory, max 20 entries, FIFO eviction                 |
 | Client cache              | In-memory dict + JSON file on disk                       |
 | Client speaker config     | Local `.env` file on the Pi                              |
-| Server process model      | Single Flask process, single port (5000)                 |
+| Server process model      | Single Flask process, single port (3000)                 |
 | Repository structure      | Monorepo                                                 |
 | Server deployment         | Container                                                |
 
