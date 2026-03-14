@@ -7,6 +7,13 @@ async def _instant_sleep(_seconds: float) -> None:
     """Replacement for asyncio.sleep that returns immediately."""
 
 
+class _FakeGroup:
+    """Fake Sonos group where the speaker is its own coordinator."""
+
+    def __init__(self, coordinator: "FakeSoCo") -> None:
+        self.coordinator = coordinator
+
+
 class FakeSoCo:
     """Fake Sonos speaker that records what was played."""
 
@@ -16,6 +23,7 @@ class FakeSoCo:
         self.playing_from: int | None = None
         self.paused = False
         self.share_links: list[str] = []
+        self.group = _FakeGroup(self)
 
     def clear_queue(self) -> None:
         self.queue.clear()

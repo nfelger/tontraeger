@@ -12,6 +12,8 @@ def mock_soco_speaker():
     speaker.add_uri_to_queue = MagicMock()
     speaker.play_from_queue = MagicMock()
     speaker.pause = MagicMock()
+    # Ungrouped speakers are their own coordinator.
+    speaker.group.coordinator = speaker
     return speaker
 
 

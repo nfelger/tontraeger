@@ -52,19 +52,23 @@ class SonosAPI:
         if not self._speaker:
             raise Exception("Speaker not initialized")
 
-        self._speaker.clear_queue()
+        # Playback commands must go to the group coordinator. If the speaker
+        # is a slave in a group, SoCo raises SoCoSlaveException otherwise.
+        coordinator = self._speaker.group.coordinator
+        coordinator.clear_queue()
         if uri.startswith("https://"):
-            ShareLinkPlugin(self._speaker).add_share_link_to_queue(uri)
+            ShareLinkPlugin(coordinator).add_share_link_to_queue(uri)
         else:
-            self._speaker.add_uri_to_queue(uri)
-        self._speaker.play_from_queue(0)
+            coordinator.add_uri_to_queue(uri)
+        coordinator.play_from_queue(0)
 
     def get_current_track_uri(self) -> Optional[str]:
         """Return the media URI of the currently playing track, or None."""
         if not self._speaker:
             raise Exception("Speaker not initialized")
 
-        info = self._speaker.get_current_track_info()
+        coordinator = self._speaker.group.coordinator
+        info = coordinator.get_current_track_info()
         uri = info.get("uri", "")
         return uri if uri else None
 
@@ -73,4 +77,4 @@ class SonosAPI:
         if not self._speaker:
             raise Exception("Speaker not initialized")
 
-        self._speaker.pause()
+        self._speaker.group.coordinator.pause()

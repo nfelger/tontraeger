@@ -32,12 +32,15 @@ class SonosAPI:
         """Clear queue, add URI, and start playing. Blocking (network I/O)."""
         if self._speaker is None:
             raise RuntimeError("Speaker not initialized")
-        self._speaker.clear_queue()
+        # Playback commands must go to the group coordinator. If the speaker
+        # is a slave in a group, SoCo raises SoCoSlaveException otherwise.
+        coordinator = self._speaker.group.coordinator
+        coordinator.clear_queue()
         if uri.startswith("https://"):
-            ShareLinkPlugin(self._speaker).add_share_link_to_queue(uri)
+            ShareLinkPlugin(coordinator).add_share_link_to_queue(uri)
         else:
-            self._speaker.add_uri_to_queue(uri)
-        self._speaker.play_from_queue(0)
+            coordinator.add_uri_to_queue(uri)
+        coordinator.play_from_queue(0)
 
     async def discover(self) -> None:
         """Keep searching for the speaker until found. Retries every 5s."""
@@ -73,7 +76,8 @@ class SonosAPI:
 
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(None, self._speaker.pause)
+            coordinator = self._speaker.group.coordinator
+            await loop.run_in_executor(None, coordinator.pause)
         except Exception as e:
             logger.error("stop_playback failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None
