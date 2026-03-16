@@ -5,7 +5,9 @@
       "Bash(make:*)",
       "Bash(/usr/bin/make:*)",
       "Bash(uv run mypy:*)",
-      "Bash(uv lock:*)"
+      "Bash(uv lock:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
