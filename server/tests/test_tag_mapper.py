@@ -36,7 +36,7 @@ def test_get_all_mappings(temp_db: str) -> None:
     mapper.insert_mapping("ccc", "uri_c", "Charlie")
 
     mappings = mapper.get_all_mappings()
-    assert mappings == [("aaa", "uri_a", "Alpha"), ("bbb", "uri_b", ""), ("ccc", "uri_c", "Charlie")]
+    assert mappings == [("aaa", "uri_a", "Alpha", False), ("bbb", "uri_b", "", False), ("ccc", "uri_c", "Charlie", False)]
 
 
 def test_get_all_mappings_empty(temp_db: str) -> None:

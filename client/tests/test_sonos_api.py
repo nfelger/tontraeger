@@ -69,7 +69,7 @@ class FakeSonosAPI(SonosAPI):
             raise RuntimeError("No speaker configured in fake")
         return self._fake_speaker
 
-    def _do_play(self, uri: str) -> None:
+    def _do_play(self, uri: str, shuffle: bool = False) -> None:
         if self._speaker is None:
             raise RuntimeError("Speaker not initialized")
         speaker: FakeSoCo = self._speaker  # type: ignore[assignment]
@@ -175,7 +175,7 @@ async def test_play_error_clears_speaker() -> None:
     fake = FakeSoCo()
     api = FakeSonosAPI(fake_speaker=fake)
 
-    def exploding_play(uri: str) -> None:
+    def exploding_play(uri: str, shuffle: bool = False) -> None:
         raise RuntimeError("Sonos unreachable")
 
     api._do_play = exploding_play  # type: ignore[assignment]

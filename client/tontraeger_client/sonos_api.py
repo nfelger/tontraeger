@@ -7,6 +7,9 @@ from soco.plugins.sharelink import ShareLinkPlugin
 
 logger = logging.getLogger(__name__)
 
+PLAY_MODE_SHUFFLE = "SHUFFLE"
+PLAY_MODE_NORMAL = "NORMAL"
+
 
 class SonosAPI:
     def __init__(self, speaker_name: str) -> None:
@@ -28,14 +31,15 @@ class SonosAPI:
             )
         return speaker
 
-    def _do_play(self, uri: str) -> None:
-        """Clear queue, add URI, and start playing. Blocking (network I/O)."""
+    def _do_play(self, uri: str, shuffle: bool = False) -> None:
+        """Clear queue, set play mode, add URI, and start playing. Blocking (network I/O)."""
         if self._speaker is None:
             raise RuntimeError("Speaker not initialized")
         # Playback commands must go to the group coordinator. If the speaker
         # is a slave in a group, SoCo raises SoCoSlaveException otherwise.
         coordinator = self._speaker.group.coordinator
         coordinator.clear_queue()
+        coordinator.play_mode = PLAY_MODE_SHUFFLE if shuffle else PLAY_MODE_NORMAL
         if uri.startswith("https://"):
             ShareLinkPlugin(coordinator).add_share_link_to_queue(uri)
         else:
@@ -53,7 +57,7 @@ class SonosAPI:
                 logger.warning("Speaker discovery failed: %s — retrying in 5s", e)
                 await asyncio.sleep(5)
 
-    async def play_uri(self, uri: str) -> None:
+    async def play_uri(self, uri: str, shuffle: bool = False) -> None:
         """Play a URI. Finds the speaker first if needed.
 
         On error, forgets the speaker so the next call rediscovers it.
@@ -63,7 +67,7 @@ class SonosAPI:
 
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(None, self._do_play, uri)
+            await loop.run_in_executor(None, self._do_play, uri, shuffle)
         except Exception as e:
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None

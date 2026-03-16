@@ -11,20 +11,20 @@ class MappingCache:
     """In-memory tag-to-URI cache backed by a JSON file on disk.
 
     The JSON file stores a list of mapping objects:
-        [{"tag_uid": "...", "media_uri": "...", "name": "..."}, ...]
+        [{"tag_uid": "...", "media_uri": "...", "name": "...", "shuffle": false}, ...]
 
     The in-memory representation is a dict keyed by tag_uid for O(1) lookup.
     """
 
     def __init__(self, cache_path: str) -> None:
         self._cache_path = cache_path
-        self._mappings: dict[str, tuple[str, str]] = {}  # tag_uid -> (media_uri, name)
+        self._mappings: dict[str, tuple[str, str, bool]] = {}  # tag_uid -> (media_uri, name, shuffle)
         self._load()
 
     @staticmethod
-    def _parse(mappings: list[dict]) -> dict[str, tuple[str, str]]:
+    def _parse(mappings: list[dict]) -> dict[str, tuple[str, str, bool]]:
         return {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""))
+            m["tag_uid"]: (m["media_uri"], m.get("name", ""), bool(m["shuffle"]))
             for m in mappings
         }
 
@@ -57,20 +57,27 @@ class MappingCache:
             return None
         return entry[1]
 
+    def get_shuffle(self, tag_uid: str) -> bool:
+        """Return whether shuffle is enabled for a tag. Returns False if not cached."""
+        entry = self._mappings.get(tag_uid)
+        if entry is None:
+            return False
+        return entry[2]
+
     def update(self, mappings: list[dict]) -> None:
         """Replace all cached mappings and persist to disk atomically."""
         self._mappings = self._parse(mappings)
         self._persist()
 
-    def all_mappings(self) -> dict[str, tuple[str, str]]:
-        """Return all cached mappings as {tag_uid: (media_uri, name)}."""
+    def all_mappings(self) -> dict[str, tuple[str, str, bool]]:
+        """Return all cached mappings as {tag_uid: (media_uri, name, shuffle)}."""
         return dict(self._mappings)
 
     def _persist(self) -> None:
         """Write mappings to disk atomically (write to temp file, then rename)."""
         data = [
-            {"tag_uid": uid, "media_uri": uri, "name": name}
-            for uid, (uri, name) in self._mappings.items()
+            {"tag_uid": uid, "media_uri": uri, "name": name, "shuffle": shuffle}
+            for uid, (uri, name, shuffle) in self._mappings.items()
         ]
         dir_name = os.path.dirname(self._cache_path) or "."
         fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")

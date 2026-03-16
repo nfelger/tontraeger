@@ -9,10 +9,12 @@ from tontraeger_client.control import PlaybackController, nfc_reader
 class DummySonosAPI:
     def __init__(self) -> None:
         self.played_uri: str | None = None
+        self.played_shuffle: bool = False
         self.stopped: bool = False
 
-    async def play_uri(self, uri: str) -> None:
+    async def play_uri(self, uri: str, shuffle: bool = False) -> None:
         self.played_uri = uri
+        self.played_shuffle = shuffle
 
     async def stop_playback(self) -> None:
         self.stopped = True
@@ -36,14 +38,27 @@ def cache(tmp_path):
 
 @pytest.mark.asyncio
 async def test_handle_present_plays_uri(cache) -> None:
-    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-sonosapi-radio:s25111", "name": ""}])
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-sonosapi-radio:s25111", "name": "", "shuffle": False}])
     sonos = DummySonosAPI()
     controller = PlaybackController(sonos, cache)
 
     await controller.handle_present("04:ab:cd:12:34:56:78")
 
     assert sonos.played_uri == "x-sonosapi-radio:s25111"
+    assert sonos.played_shuffle is False
     assert not sonos.stopped
+
+
+@pytest.mark.asyncio
+async def test_handle_present_plays_with_shuffle(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "spotify:playlist:xyz", "name": "Radio", "shuffle": True}])
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_present("04:ab:cd:12:34:56:78")
+
+    assert sonos.played_uri == "spotify:playlist:xyz"
+    assert sonos.played_shuffle is True
 
 
 @pytest.mark.asyncio
@@ -185,7 +200,7 @@ async def _run_nfc_reader_with_fake_daemon(
 
 @pytest.mark.asyncio
 async def test_nfc_reader_dispatches_present(cache) -> None:
-    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": ""}])
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
     lines = [b"PRESENT 04:ab:cd:12:34:56:78\n"]
 
     _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
@@ -331,20 +346,20 @@ async def test_nfc_reader_backoff_resets_after_output(cache) -> None:
 async def test_nfc_reader_handler_error_continues(cache) -> None:
     """A Sonos error in handle_present must not restart the daemon."""
     cache.update([
-        {"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:first", "name": ""},
-        {"tag_uid": "04:bb:bb:bb:bb:bb:bb", "media_uri": "x-radio:second", "name": ""},
+        {"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:first", "name": "", "shuffle": False},
+        {"tag_uid": "04:bb:bb:bb:bb:bb:bb", "media_uri": "x-radio:second", "name": "", "shuffle": False},
     ])
 
     sonos = DummySonosAPI()
     call_count = 0
     original_play_uri = sonos.play_uri
 
-    async def flaky_play(uri: str) -> None:
+    async def flaky_play(uri: str, shuffle: bool = False) -> None:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise RuntimeError("Sonos unreachable")
-        await original_play_uri(uri)
+        await original_play_uri(uri, shuffle=shuffle)
 
     sonos.play_uri = flaky_play  # type: ignore[assignment]
 
@@ -362,7 +377,7 @@ async def test_nfc_reader_handler_error_continues(cache) -> None:
 @pytest.mark.asyncio
 async def test_nfc_reader_malformed_line_logged(cache) -> None:
     """Garbage lines are logged but don't crash the reader."""
-    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": ""}])
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": "", "shuffle": False}])
     lines = [
         b"GARBAGE nonsense\n",
         b"\n",
@@ -378,7 +393,7 @@ async def test_nfc_reader_malformed_line_logged(cache) -> None:
 @pytest.mark.asyncio
 async def test_nfc_reader_non_utf8_does_not_crash(cache) -> None:
     """Binary garbage from the daemon is handled, not crashed on."""
-    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": ""}])
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:ok", "name": "", "shuffle": False}])
     lines = [
         b"\xff\xfe PRESENT garbage\n",  # invalid UTF-8
         b"PRESENT 04:ab:cd:12:34:56:78\n",  # valid — should still work

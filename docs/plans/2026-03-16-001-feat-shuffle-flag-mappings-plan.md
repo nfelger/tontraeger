@@ -1,7 +1,7 @@
 ---
 title: Add Shuffle Flag to Tag Mappings
 type: feat
-status: active
+status: completed
 date: 2026-03-16
 origin: docs/brainstorms/2026-03-16-spotify-radio-shuffle-brainstorm.md
 ---
@@ -102,17 +102,17 @@ The "Now Playing" flow does **not** pre-populate the shuffle checkbox. The user 
 
 ## Acceptance Criteria
 
-- [ ] New mapping created with "Shuffle" checked → `shuffle=True` in DB and API response
-- [ ] New mapping created without "Shuffle" → `shuffle=False` in DB and API response
-- [ ] Existing mappings in DB (pre-migration) load correctly with `shuffle=False`
-- [ ] Placing a shuffle=True tag sets Sonos play mode to `SHUFFLE` before queue is populated
-- [ ] Placing a shuffle=False tag sets Sonos play mode to `NORMAL` (bleed prevention)
-- [ ] Placing a shuffle=True tag after a shuffle=False tag plays in shuffle mode
-- [ ] Placing a shuffle=False tag after a shuffle=True tag plays in normal mode
-- [ ] `content_hash()` changes when shuffle is toggled on a mapping
-- [ ] Client poll receives updated shuffle value after server-side change
-- [ ] Mapping cards in the web UI show a visual shuffle indicator for shuffle=True tags
-- [ ] `make check` passes (lint, typecheck, tests)
+- [x] New mapping created with "Shuffle" checked → `shuffle=True` in DB and API response
+- [x] New mapping created without "Shuffle" → `shuffle=False` in DB and API response
+- [x] Existing mappings in DB (pre-migration) load correctly with `shuffle=False`
+- [x] Placing a shuffle=True tag sets Sonos play mode to `SHUFFLE` before queue is populated
+- [x] Placing a shuffle=False tag sets Sonos play mode to `NORMAL` (bleed prevention)
+- [x] Placing a shuffle=True tag after a shuffle=False tag plays in shuffle mode
+- [x] Placing a shuffle=False tag after a shuffle=True tag plays in normal mode
+- [x] `content_hash()` changes when shuffle is toggled on a mapping
+- [x] Client poll receives updated shuffle value after server-side change
+- [x] Mapping cards in the web UI show a visual shuffle indicator for shuffle=True tags
+- [x] `make check` passes (lint, typecheck, tests)
 
 ## Open Questions
 

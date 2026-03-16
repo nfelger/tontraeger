@@ -29,8 +29,8 @@ class TestPoll:
     @patch("tontraeger_client.sync.requests.get")
     def test_200_updates_cache(self, mock_get, sync, cache):
         mappings = [
-            {"tag_uid": "aaa", "media_uri": "uri1", "name": "Track 1"},
-            {"tag_uid": "bbb", "media_uri": "STOP", "name": "Stop"},
+            {"tag_uid": "aaa", "media_uri": "uri1", "name": "Track 1", "shuffle": False},
+            {"tag_uid": "bbb", "media_uri": "STOP", "name": "Stop", "shuffle": False},
         ]
         mock_get.return_value = _mock_response(
             200,
@@ -47,7 +47,7 @@ class TestPoll:
     @patch("tontraeger_client.sync.requests.get")
     def test_304_skips_update(self, mock_get, sync, cache):
         # First poll: get data
-        mappings = [{"tag_uid": "aaa", "media_uri": "uri1", "name": ""}]
+        mappings = [{"tag_uid": "aaa", "media_uri": "uri1", "name": "", "shuffle": False}]
         mock_get.return_value = _mock_response(
             200,
             json_data={"mappings": mappings},

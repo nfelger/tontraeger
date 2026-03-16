@@ -28,33 +28,37 @@ class TagMapper:
                 cursor.execute("ALTER TABLE tags ADD COLUMN name TEXT NOT NULL DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
+            try:
+                cursor.execute("ALTER TABLE tags ADD COLUMN shuffle INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
         finally:
             conn.close()
 
-    def insert_mapping(self, tag_uid: str, media_uri: str, name: str = "") -> None:
+    def insert_mapping(self, tag_uid: str, media_uri: str, name: str = "", shuffle: bool = False) -> None:
         """Inserts or updates a mapping between a tag UID and a media URI."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO tags (tag_uid, media_uri, name)
-                VALUES (?, ?, ?)
+                INSERT OR REPLACE INTO tags (tag_uid, media_uri, name, shuffle)
+                VALUES (?, ?, ?, ?)
                 """,
-                (tag_uid, media_uri, name),
+                (tag_uid, media_uri, name, int(shuffle)),
             )
             conn.commit()
         finally:
             conn.close()
 
-    def get_all_mappings(self) -> list[tuple[str, str, str]]:
-        """Returns all (tag_uid, media_uri, name) mappings."""
+    def get_all_mappings(self) -> list[tuple[str, str, str, bool]]:
+        """Returns all (tag_uid, media_uri, name, shuffle) mappings."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT tag_uid, media_uri, name FROM tags ORDER BY tag_uid")
-            return cursor.fetchall()
+            cursor.execute("SELECT tag_uid, media_uri, name, shuffle FROM tags ORDER BY tag_uid")
+            return [(t, u, n, bool(s)) for t, u, n, s in cursor.fetchall()]
         finally:
             conn.close()
 
@@ -91,7 +95,7 @@ class TagMapper:
         """SHA-256 of all mappings, for use as ETag."""
         mappings = self.get_all_mappings()
         serialized = json.dumps(
-            [{"tag_uid": t, "media_uri": u, "name": n} for t, u, n in mappings],
+            [{"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s in mappings],
             sort_keys=True,
         )
         return hashlib.sha256(serialized.encode()).hexdigest()

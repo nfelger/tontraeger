@@ -288,6 +288,11 @@ PAGE_TEMPLATE = """
     color: #000;
   }
 
+  .badge-shuffle {
+    font-size: 0.75rem;
+    opacity: 0.6;
+  }
+
   .empty {
     text-align: center;
     color: var(--muted);
@@ -421,6 +426,9 @@ PAGE_TEMPLATE = """
             <label for="media_uri">Media URI</label>
             <input type="text" id="media_uri" name="media_uri" x-ref="mediaUri" placeholder="Spotify link, Sonos URI, or STOP" required>
           </div>
+          <div class="form-field form-field-checkbox">
+            <label><input type="checkbox" name="shuffle"> Shuffle</label>
+          </div>
           <button type="submit" class="btn btn-primary">Add</button>
         </div>
       </form>
@@ -471,11 +479,11 @@ PAGE_TEMPLATE = """
   </div>
 
   {% if mappings %}
-    {% for tag_uid, media_uri, name in mappings %}
+    {% for tag_uid, media_uri, name, shuffle in mappings %}
     <div class="card">
       <div class="card-groove"></div>
       <div class="card-body">
-        <div class="card-tag">{{ name if name else tag_uid }}</div>
+        <div class="card-tag">{{ name if name else tag_uid }}{% if shuffle %} <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>{% endif %}</div>
         {% if name %}
           <div class="card-uri" title="{{ tag_uid }}">{{ tag_uid }}</div>
         {% endif %}
@@ -604,8 +612,9 @@ def add_mapping() -> Response:
     tag_uid = request.form.get("tag_uid", "").strip()
     media_uri = request.form.get("media_uri", "").strip()
     name = request.form.get("name", "").strip()
+    shuffle = request.form.get("shuffle") == "on"
     if tag_uid and media_uri:
-        mapper.insert_mapping(tag_uid, media_uri, name)
+        mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
         flash(f"Mapping added for tag {escape(name or tag_uid)}")
     return redirect(url_for("index"))
 
@@ -639,7 +648,7 @@ def api_mappings() -> Response:
     mappings = mapper.get_all_mappings()
     resp = jsonify(
         mappings=[
-            {"tag_uid": t, "media_uri": u, "name": n} for t, u, n in mappings
+            {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s in mappings
         ]
     )
     resp.headers["ETag"] = etag

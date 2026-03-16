@@ -190,8 +190,37 @@ def test_api_mappings_with_data(client: FlaskClient) -> None:
     resp = client.get("/api/mappings")
     assert resp.status_code == 200
     assert len(resp.json["mappings"]) == 2
-    assert resp.json["mappings"][0] == {"tag_uid": "aaa", "media_uri": "uri_a", "name": "Alpha"}
-    assert resp.json["mappings"][1] == {"tag_uid": "bbb", "media_uri": "uri_b", "name": ""}
+    assert resp.json["mappings"][0] == {"tag_uid": "aaa", "media_uri": "uri_a", "name": "Alpha", "shuffle": False}
+    assert resp.json["mappings"][1] == {"tag_uid": "bbb", "media_uri": "uri_b", "name": "", "shuffle": False}
+
+
+def test_add_mapping_with_shuffle(client: FlaskClient) -> None:
+    resp = client.post("/mappings", data={"tag_uid": "333", "media_uri": "https://spotify.com/playlist", "name": "Radio", "shuffle": "on"})
+    assert resp.status_code == 302
+
+    resp = client.get("/api/mappings")
+    assert resp.json["mappings"][0]["shuffle"] is True
+
+
+def test_add_mapping_without_shuffle_defaults_false(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "444", "media_uri": "uri_d", "name": "Ordered"})
+
+    resp = client.get("/api/mappings")
+    assert resp.json["mappings"][0]["shuffle"] is False
+
+
+def test_etag_changes_on_shuffle_toggle(client: FlaskClient) -> None:
+    """Toggling shuffle on a mapping must invalidate the ETag."""
+    client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": ""})
+    resp1 = client.get("/api/mappings")
+    old_etag = resp1.headers["ETag"]
+
+    # Re-add same mapping with shuffle=True (INSERT OR REPLACE)
+    client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": "", "shuffle": "on"})
+    resp2 = client.get("/api/mappings", headers={"If-None-Match": old_etag})
+    assert resp2.status_code == 200
+    assert resp2.headers["ETag"] != old_etag
+    assert resp2.json["mappings"][0]["shuffle"] is True
 
 
 def test_api_mappings_etag_304(client: FlaskClient) -> None:
