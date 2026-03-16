@@ -23,6 +23,7 @@ class FakeSoCo:
         self.playing_from: int | None = None
         self.paused = False
         self.share_links: list[str] = []
+        self.play_mode: str = ""
         self.group = _FakeGroup(self)
 
     def clear_queue(self) -> None:
@@ -168,6 +169,28 @@ async def test_play_discovers_if_no_speaker(monkeypatch) -> None:
 
     assert api._speaker is fake
     assert fake.queue == ["x-sonosapi-radio:test"]
+
+
+@pytest.mark.asyncio
+async def test_play_uri_sets_shuffle_mode() -> None:
+    fake = FakeSoCo()
+    api = SonosAPI("Living Room")
+    api._speaker = fake  # type: ignore[assignment]
+
+    await api.play_uri("x-sonosapi-radio:s123", shuffle=True)
+
+    assert fake.play_mode == "SHUFFLE"
+
+
+@pytest.mark.asyncio
+async def test_play_uri_sets_normal_mode() -> None:
+    fake = FakeSoCo()
+    api = SonosAPI("Living Room")
+    api._speaker = fake  # type: ignore[assignment]
+
+    await api.play_uri("x-sonosapi-radio:s123", shuffle=False)
+
+    assert fake.play_mode == "NORMAL"
 
 
 @pytest.mark.asyncio

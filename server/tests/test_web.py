@@ -209,6 +209,18 @@ def test_add_mapping_without_shuffle_defaults_false(client: FlaskClient) -> None
     assert resp.json["mappings"][0]["shuffle"] is False
 
 
+def test_shuffle_badge_renders_in_html(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "s1", "media_uri": "uri", "name": "Radio", "shuffle": "on"})
+    resp = client.get("/")
+    assert b'class="badge-shuffle"' in resp.data
+
+
+def test_shuffle_badge_absent_without_shuffle(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "s2", "media_uri": "uri", "name": "Ordered"})
+    resp = client.get("/")
+    assert b'class="badge-shuffle"' not in resp.data
+
+
 def test_etag_changes_on_shuffle_toggle(client: FlaskClient) -> None:
     """Toggling shuffle on a mapping must invalidate the ETag."""
     client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": ""})

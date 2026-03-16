@@ -69,6 +69,17 @@ def test_load_from_existing_file(cache_path):
     assert len(cache.all_mappings()) == 2
 
 
+def test_load_from_file_without_shuffle_field(cache_path):
+    """Cache files written before the shuffle feature was added load cleanly."""
+    data = [{"tag_uid": "x1", "media_uri": "uri1", "name": "Old"}]
+    with open(cache_path, "w") as f:
+        json.dump(data, f)
+
+    cache = MappingCache(cache_path)
+    assert cache.get_uri("x1") == "uri1"
+    assert cache.get_shuffle("x1") is False
+
+
 def test_update_replaces_all_mappings(cache_path):
     cache = MappingCache(cache_path)
     cache.update([

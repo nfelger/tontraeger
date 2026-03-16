@@ -20,14 +20,11 @@ class TagMapper:
                 CREATE TABLE IF NOT EXISTS tags (
                     tag_uid TEXT PRIMARY KEY,
                     media_uri TEXT NOT NULL,
-                    name TEXT NOT NULL DEFAULT ''
+                    name TEXT NOT NULL DEFAULT '',
+                    shuffle INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
-            try:
-                cursor.execute("ALTER TABLE tags ADD COLUMN name TEXT NOT NULL DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass
             try:
                 cursor.execute("ALTER TABLE tags ADD COLUMN shuffle INTEGER NOT NULL DEFAULT 0")
             except sqlite3.OperationalError:

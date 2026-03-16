@@ -7,9 +7,6 @@ from soco.plugins.sharelink import ShareLinkPlugin
 
 logger = logging.getLogger(__name__)
 
-PLAY_MODE_SHUFFLE = "SHUFFLE"
-PLAY_MODE_NORMAL = "NORMAL"
-
 
 class SonosAPI:
     def __init__(self, speaker_name: str) -> None:
@@ -39,7 +36,7 @@ class SonosAPI:
         # is a slave in a group, SoCo raises SoCoSlaveException otherwise.
         coordinator = self._speaker.group.coordinator
         coordinator.clear_queue()
-        coordinator.play_mode = PLAY_MODE_SHUFFLE if shuffle else PLAY_MODE_NORMAL
+        coordinator.play_mode = "SHUFFLE" if shuffle else "NORMAL"
         if uri.startswith("https://"):
             ShareLinkPlugin(coordinator).add_share_link_to_queue(uri)
         else:
@@ -67,7 +64,7 @@ class SonosAPI:
 
         loop = asyncio.get_running_loop()
         try:
-            await loop.run_in_executor(None, self._do_play, uri, shuffle)
+            await loop.run_in_executor(None, lambda: self._do_play(uri, shuffle))
         except Exception as e:
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None

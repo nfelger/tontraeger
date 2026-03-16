@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
-from markupsafe import escape
 from werkzeug.wrappers import Response
 
 import soco
@@ -642,14 +641,14 @@ def add_mapping() -> Response:
     shuffle = request.form.get("shuffle") == "on"
     if tag_uid and media_uri:
         mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
-        flash(f"Mapping added for tag {escape(name or tag_uid)}")
+        flash(f"Mapping added for tag {name or tag_uid}")
     return redirect(url_for("index"))
 
 
 @app.route("/mappings/<tag_uid>/delete", methods=["POST"])
 def delete_mapping(tag_uid: str) -> Response:
     mapper.delete_mapping(tag_uid)
-    flash(f"Mapping removed for tag {escape(tag_uid)}")
+    flash(f"Mapping removed for tag {tag_uid}")
     return redirect(url_for("index"))
 
 

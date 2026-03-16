@@ -152,7 +152,7 @@ GET /api/mappings
   Body:
   {
     "mappings": [
-      {"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "https://open.spotify.com/album/...", "name": "Kids Mix"}
+      {"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "https://open.spotify.com/album/...", "name": "Kids Mix", "shuffle": false}
     ]
   }
 

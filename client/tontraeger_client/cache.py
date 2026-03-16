@@ -24,7 +24,7 @@ class MappingCache:
     @staticmethod
     def _parse(mappings: list[dict]) -> dict[str, tuple[str, str, bool]]:
         return {
-            m["tag_uid"]: (m["media_uri"], m.get("name", ""), bool(m["shuffle"]))
+            m["tag_uid"]: (m["media_uri"], m.get("name", ""), bool(m.get("shuffle", False)))
             for m in mappings
         }
 
