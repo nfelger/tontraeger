@@ -293,6 +293,33 @@ PAGE_TEMPLATE = """
     opacity: 0.6;
   }
 
+  .form-field-checkbox {
+    flex: 0 0 auto;
+    align-self: flex-end;
+    padding-bottom: 0.6rem;
+  }
+
+  .form-field-checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    cursor: pointer;
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+
+  .form-field-checkbox input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--amber);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
   .empty {
     text-align: center;
     color: var(--muted);
