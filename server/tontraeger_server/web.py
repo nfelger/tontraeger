@@ -675,12 +675,12 @@ PAGE_TEMPLATE = """
 
   {% if mappings %}
     {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
-    <div class="card" x-data="artworkRow({{ tag_uid|tojson }})">
+    <div class="card" x-data='artworkRow({{ tag_uid|tojson }})'>
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
                  {% if not has_image %}disabled title="Capture artwork first"{% endif %}
-                 @change="$event.target.checked ? $store.printMode.selected.add({{ tag_uid|tojson }}) : $store.printMode.selected.delete({{ tag_uid|tojson }})">
+                 @change='$event.target.checked ? $store.printMode.selected.add({{ tag_uid|tojson }}) : $store.printMode.selected.delete({{ tag_uid|tojson }})'>
         </div>
       </template>
       {% if has_image %}
