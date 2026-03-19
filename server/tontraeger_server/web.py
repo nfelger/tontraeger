@@ -787,7 +787,7 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify({ image_url: url })
                 });
                 if (resp.ok) {
-                    location.reload();
+                    location.href = '/?_=' + Date.now();
                 } else {
                     alert('Failed to save image');
                 }
@@ -809,7 +809,7 @@ document.addEventListener('alpine:init', () => {
                         body: JSON.stringify({ image_data: base64 })
                     });
                     if (resp.ok) {
-                        location.reload();
+                        location.href = '/?_=' + Date.now();
                     } else {
                         alert('Failed to upload image');
                     }

@@ -1,1 +1,1 @@
-- Add editing mappings feature (currently re-saving a mapping via INSERT OR REPLACE destroys stored image data)
+- Add editing mappings feature

@@ -45,8 +45,12 @@ class TagMapper:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO tags (tag_uid, media_uri, name, shuffle)
+                INSERT INTO tags (tag_uid, media_uri, name, shuffle)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT(tag_uid) DO UPDATE SET
+                    media_uri = excluded.media_uri,
+                    name = excluded.name,
+                    shuffle = excluded.shuffle
                 """,
                 (tag_uid, media_uri, name, int(shuffle)),
             )

@@ -72,6 +72,22 @@ def test_upsert_image_nonexistent_tag(temp_db: str) -> None:
     assert mapper.upsert_image("missing", "data") is False
 
 
+def test_insert_mapping_preserves_image_data(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a", "Alpha")
+    mapper.upsert_image("aaa", "img_data")
+
+    # Re-saving the mapping should preserve image_data
+    mapper.insert_mapping("aaa", "uri_b", "Alpha Updated", shuffle=True)
+
+    rows = mapper.get_mappings_with_images(["aaa"])
+    assert len(rows) == 1
+    assert rows[0][1] == "img_data"
+    # Verify other fields were updated
+    mappings = mapper.get_all_mappings()
+    assert mappings[0] == ("aaa", "uri_b", "Alpha Updated", True, True)
+
+
 def test_upsert_image_overwrites(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     mapper.insert_mapping("aaa", "uri_a")
