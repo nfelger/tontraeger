@@ -453,6 +453,104 @@ PAGE_TEMPLATE = """
     text-transform: uppercase;
   }
 
+  /* ── Print selection mode ───────────────── */
+  .print-checkbox {
+    flex-shrink: 0;
+  }
+
+  .print-checkbox input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--amber);
+    cursor: pointer;
+  }
+
+  .print-checkbox input[type="checkbox"]:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  /* ── Artwork thumbnail + capture ─────────── */
+  .card-thumb {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .card-thumb-placeholder {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px dashed var(--border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 1rem;
+  }
+
+  .artwork-controls {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .artwork-controls .form-field-url {
+    flex: 0 0 auto;
+  }
+
+  .artwork-controls .form-field-url input {
+    width: 160px;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--cream);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+  }
+
+  .artwork-controls .form-field-url input::placeholder {
+    color: #4a4540;
+  }
+
+  .artwork-controls .form-field-url input:focus {
+    outline: none;
+    border-color: var(--amber);
+  }
+
+  .btn-capture {
+    background: transparent;
+    color: var(--green);
+    border: 1px solid var(--green);
+    padding: 0.3rem 0.6rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+  .btn-capture:hover {
+    background: rgba(106, 159, 92, 0.12);
+  }
+  .btn-capture:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-save-url {
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.5rem;
+    font-size: 0.7rem;
+  }
+  .btn-save-url:hover {
+    border-color: var(--amber);
+  }
+
   /* ── Responsive ──────────────────────────── */
   @media (max-width: 500px) {
     header h1 { font-size: 2rem; }
@@ -460,6 +558,8 @@ PAGE_TEMPLATE = """
     .btn-primary { width: 100%; }
     .card { flex-wrap: wrap; gap: 0.6rem; }
     .card-groove { display: none; }
+    .artwork-controls { flex-wrap: wrap; }
+    .artwork-controls .form-field-url input { width: 120px; }
   }
 </style>
 </head>
@@ -542,15 +642,42 @@ PAGE_TEMPLATE = """
 
   </div>
 
+  <div>
   <div class="section-head">
     <h2>Mappings</h2>
     <span class="badge">{{ mappings|length }}</span>
+    <div style="margin-left:auto; display:flex; gap:0.4rem;">
+      <button x-data x-show="!$store.printMode.active" type="button" class="btn btn-capture"
+              @click="$store.printMode.active = true">Print tags</button>
+      <template x-data x-if="$store.printMode.active">
+        <div style="display:flex; gap:0.4rem;">
+          <button type="button" class="btn btn-primary" style="margin-top:0; font-size:0.75rem; padding:0.35rem 0.8rem;"
+                  :disabled="$store.printMode.selected.size === 0"
+                  @click="window.open('/print?' + Array.from($store.printMode.selected).map(u => 'tag_uid=' + encodeURIComponent(u)).join('&'), '_blank')">
+            Print selected (<span x-text="$store.printMode.selected.size"></span>)
+          </button>
+          <button type="button" class="btn btn-delete"
+                  @click="$store.printMode.active = false; $store.printMode.selected = new Set()">Cancel</button>
+        </div>
+      </template>
+    </div>
   </div>
 
   {% if mappings %}
     {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
-    <div class="card">
-      <div class="card-groove"></div>
+    <div class="card" x-data="artworkRow('{{ tag_uid }}', {{ 'true' if has_image else 'false' }})">
+      <template x-if="$store.printMode.active">
+        <div class="print-checkbox">
+          <input type="checkbox"
+                 {% if not has_image %}disabled title="Capture artwork first"{% endif %}
+                 @change="$event.target.checked ? $store.printMode.selected.add('{{ tag_uid }}') : $store.printMode.selected.delete('{{ tag_uid }}')">
+        </div>
+      </template>
+      {% if has_image %}
+        <img class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
+      {% else %}
+        <div class="card-thumb-placeholder" title="No artwork">&#9835;</div>
+      {% endif %}
       <div class="card-body">
         <div class="card-tag">{{ name if name else tag_uid }}{% if shuffle %} <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>{% endif %}</div>
         {% if name %}
@@ -561,6 +688,22 @@ PAGE_TEMPLATE = """
         {% else %}
           <div class="card-uri" title="{{ media_uri }}">{{ media_uri }}</div>
         {% endif %}
+      </div>
+      <div class="artwork-controls">
+        <button type="button" class="btn btn-capture"
+                @click="captureFromNowPlaying()"
+                :disabled="!$data.selectedSpeaker || capturing"
+                x-text="captureText">
+          Capture
+        </button>
+        <div class="form-field-url">
+          <input type="text" x-model="manualUrl" placeholder="Image URL&hellip;" @keydown.enter="saveManualUrl()">
+        </div>
+        <button type="button" class="btn btn-save-url"
+                @click="saveManualUrl()"
+                :disabled="!manualUrl.trim()">
+          Save
+        </button>
       </div>
       <div class="card-actions">
         <form method="post" action="{{ url_for('delete_mapping', tag_uid=tag_uid) }}" style="display:inline"
@@ -573,15 +716,20 @@ PAGE_TEMPLATE = """
   {% else %}
     <div class="empty">No mappings yet &mdash; scan a tag and add it above.</div>
   {% endif %}
+  </div>
 
   <footer>tontraeger &middot; Vinyl In, Sound Out</footer>
 
 </div>
 <script>
 document.addEventListener('alpine:init', () => {
+    Alpine.store('speaker', { selected: '' });
+    Alpine.store('printMode', { active: false, selected: new Set() });
+
     Alpine.data('formHelper', () => ({
         speakers: [],
-        selectedSpeaker: '',
+        get selectedSpeaker() { return Alpine.store('speaker').selected; },
+        set selectedSpeaker(v) { Alpine.store('speaker').selected = v; },
         npLoading: false,
         npButtonText: 'Now Playing',
         unknownTags: [],
@@ -631,11 +779,196 @@ document.addEventListener('alpine:init', () => {
             this.$refs.tagUid.focus();
         }
     }));
+
+    Alpine.data('artworkRow', (tagUid, hasImage) => ({
+        tagUid,
+        hasImage,
+        capturing: false,
+        captureText: 'Capture',
+        manualUrl: '',
+        get selectedSpeaker() { return Alpine.store('speaker').selected; },
+
+        async captureFromNowPlaying() {
+            if (!this.selectedSpeaker) return;
+            this.capturing = true;
+            this.captureText = 'Fetching\u2026';
+            try {
+                const npResp = await fetch('/now-playing?speaker=' + encodeURIComponent(this.selectedSpeaker));
+                const npData = await npResp.json();
+                if (!npData.album_art) {
+                    this.captureText = 'No art';
+                    setTimeout(() => { this.captureText = 'Capture'; }, 2000);
+                    return;
+                }
+                const saveResp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_url: npData.album_art })
+                });
+                if (saveResp.ok) {
+                    this.captureText = 'Saved!';
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    this.captureText = 'Failed';
+                    setTimeout(() => { this.captureText = 'Capture'; }, 2000);
+                }
+            } catch (e) {
+                this.captureText = 'Error';
+                setTimeout(() => { this.captureText = 'Capture'; }, 2000);
+            } finally {
+                this.capturing = false;
+            }
+        },
+
+        async saveManualUrl() {
+            const url = this.manualUrl.trim();
+            if (!url) return;
+            try {
+                const resp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_url: url })
+                });
+                if (resp.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to save image');
+                }
+            } catch (e) {
+                alert('Error saving image');
+            }
+        }
+    }));
 });
 </script>
 </body>
 </html>
 """
+
+
+PRINT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Print Tags</title>
+<style>
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 210mm;
+    margin: 0 auto;
+    background: #fff;
+    font-family: sans-serif;
+  }
+
+  .sheet {
+    width: 210mm;
+    min-height: 297mm;
+    position: relative;
+    page-break-after: always;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 65mm);
+    grid-auto-rows: 65mm;
+    justify-content: center;
+    padding-top: 6.5mm;
+  }
+
+  .card {
+    width: 65mm;
+    height: 65mm;
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  .card img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 3mm;
+    display: block;
+  }
+
+  /* L-shaped corner tick marks */
+  .card::before,
+  .card::after {
+    content: '';
+    position: absolute;
+    background: #ccc;
+    z-index: 1;
+  }
+
+  /* Top-left corner */
+  .card:nth-child(1)::before { top: 0; left: 0; width: 4mm; height: 0.2mm; }
+  .card:nth-child(1)::after  { top: 0; left: 0; width: 0.2mm; height: 4mm; }
+
+  /* Use outline marks at grid edges via a separate overlay */
+  .tick {
+    position: absolute;
+    background: #ccc;
+  }
+  .tick-h { width: 4mm; height: 0.2mm; }
+  .tick-v { width: 0.2mm; height: 4mm; }
+
+  .instructions {
+    text-align: center;
+    padding: 1rem;
+    color: #999;
+    font-size: 0.8rem;
+  }
+
+  @media print {
+    .instructions { display: none; }
+    body { width: auto; margin: 0; }
+  }
+
+  @media screen {
+    body { padding: 1rem; background: #f0f0f0; }
+    .sheet { background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.15); margin-bottom: 1rem; }
+  }
+</style>
+</head>
+<body>
+  <div class="instructions">
+    Set print scale to <strong>100%</strong> and paper to <strong>A4</strong> for correct 65&times;65mm card sizing.
+  </div>
+  {% for page_cards in pages %}
+  <div class="sheet">
+    <div class="grid">
+      {% for uid in page_cards %}
+      <div class="card">
+        <img src="{{ url_for('get_image', tag_uid=uid) }}" alt="artwork">
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</body>
+</html>
+"""
+
+
+CARDS_PER_PAGE = 12  # 3 columns × 4 rows on A4
+
+
+@app.route("/print")
+def print_tags() -> str:
+    uids = request.args.getlist("tag_uid")
+    rows = mapper.get_mappings_with_images(uids)
+    valid_uids = [uid for uid, _data in rows]
+    pages = [valid_uids[i:i + CARDS_PER_PAGE] for i in range(0, len(valid_uids), CARDS_PER_PAGE)]
+    if not pages:
+        pages = [[]]
+    return render_template_string(PRINT_TEMPLATE, pages=pages)
 
 
 @app.route("/")

@@ -432,3 +432,43 @@ def test_add_mapping_non_spotify_no_auto_fetch(client: FlaskClient) -> None:
             "name": "Radio",
         })
         mock_fetch.assert_not_called()
+
+
+# ── Print view ────────────────────────────────────────
+
+
+def test_print_view_renders_cards(client: FlaskClient) -> None:
+    import base64
+    import tontraeger_server.web as web_module
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "p1", "media_uri": "uri_a"})
+    client.post("/mappings", data={"tag_uid": "p2", "media_uri": "uri_b"})
+    web_module.mapper.upsert_image("p1", jpeg_stub)
+    web_module.mapper.upsert_image("p2", jpeg_stub)
+
+    resp = client.get("/print?tag_uid=p1&tag_uid=p2")
+    assert resp.status_code == 200
+    assert b"/mappings/p1/image" in resp.data
+    assert b"/mappings/p2/image" in resp.data
+    assert b"65mm" in resp.data
+
+
+def test_print_view_skips_missing_images(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "noart", "media_uri": "uri_c"})
+
+    resp = client.get("/print?tag_uid=noart")
+    assert resp.status_code == 200
+    assert b"/mappings/noart/image" not in resp.data
+
+
+def test_print_view_empty_selection(client: FlaskClient) -> None:
+    resp = client.get("/print")
+    assert resp.status_code == 200
+    assert b"100%" in resp.data
+
+
+def test_print_view_ignores_nonexistent_uids(client: FlaskClient) -> None:
+    resp = client.get("/print?tag_uid=fake1&tag_uid=fake2")
+    assert resp.status_code == 200
+    assert b"/mappings/fake1/image" not in resp.data
