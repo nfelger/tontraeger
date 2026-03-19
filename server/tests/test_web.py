@@ -465,7 +465,7 @@ def test_print_view_renders_cards(client: FlaskClient) -> None:
     assert resp.status_code == 200
     assert b"/mappings/p1/image" in resp.data
     assert b"/mappings/p2/image" in resp.data
-    assert b"65mm" in resp.data
+    assert b"59mm" in resp.data
     assert b"card-outline" in resp.data
 
 

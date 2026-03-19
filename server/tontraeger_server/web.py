@@ -890,11 +890,14 @@ PRINT_TEMPLATE = """
 <meta charset="utf-8">
 <title>Print Tags</title>
 <style>
-  /* Layout: 3×4 grid of 70mm cells on A4 (210×297mm).
-     Each cell contains:
-     - Outer cut line (straight, 70×70mm) — first cut: separate printed cards
-     - Inner cut line (rounded 3mm, 65×65mm) — second cut: trim laminated cards
-     - Artwork (59×59mm, centered) — fits inside rounded corners */
+  /* Print layout for two-cut lamination workflow:
+     1. Straight cuts to separate cards (rows/columns in one motion)
+     2. Place in lamination pouch, laminate, cut ~3mm outside card
+
+     Printed cards: 59×59mm. After laminating with 3mm seal = 65×65mm.
+     Grid: 3 cols × 4 rows of 59mm cells on A4 (210×297mm).
+     3×59 = 177mm wide — fits within typical ~5mm unprintable margins.
+     4×59 = 236mm tall, centered vertically. */
 
   @page {
     size: A4;
@@ -919,39 +922,40 @@ PRINT_TEMPLATE = """
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 70mm);
-    grid-auto-rows: 70mm;
+    grid-template-columns: repeat(3, 59mm);
+    grid-auto-rows: 59mm;
     justify-content: center;
-    padding-top: 4.5mm; /* (297 - 4*70) / 2 ≈ 4.5mm vertical centering */
+    align-content: center;
+    min-height: 297mm;
   }
 
-  /* Outer cut line — straight rectangle, full cell */
   .cell {
-    width: 70mm;
-    height: 70mm;
+    width: 59mm;
+    height: 59mm;
     position: relative;
-    border: 0.2mm dashed #bbb;
   }
 
-  /* Inner cut line — rounded 65×65mm, centered in cell */
+  /* Rounded cut outline — visible at corners and grid perimeter;
+     guides the paper cut before lamination */
   .card-outline {
     position: absolute;
-    top: 2.5mm;
-    left: 2.5mm;
-    width: 65mm;
-    height: 65mm;
-    border: 0.2mm solid #999;
+    top: 0;
+    left: 0;
+    width: 59mm;
+    height: 59mm;
+    border: 0.3mm solid #aaa;
     border-radius: 3mm;
   }
 
-  /* Artwork — centered inside rounded area */
+  /* Artwork fills the 59mm card, clipped to rounded corners */
   .cell img {
     position: absolute;
-    top: 5.5mm;
-    left: 5.5mm;
+    top: 0;
+    left: 0;
     width: 59mm;
     height: 59mm;
     object-fit: contain;
+    border-radius: 3mm;
     display: block;
   }
 
@@ -975,8 +979,8 @@ PRINT_TEMPLATE = """
 </head>
 <body>
   <div class="instructions">
-    Set print scale to <strong>100%</strong> and paper to <strong>A4</strong> for correct sizing.<br>
-    Dashed line = first cut (separate cards). Solid rounded line = second cut (trim laminated cards, 65&times;65mm).
+    Set print scale to <strong>100%</strong> and paper to <strong>A4</strong>.<br>
+    Cut along the rounded outline (59&times;59mm), then laminate and trim with 3mm sealed border for 65&times;65mm cards.
   </div>
   {% for page_cards in pages %}
   <div class="sheet">

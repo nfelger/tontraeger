@@ -52,14 +52,18 @@ No `requests` dependency needed — use `urllib.request` from stdlib to fetch oE
 
 ### Print Layout
 
-Separate inline template string (like `PAGE_TEMPLATE` in `web.py:65`). CSS-only layout:
-- `@page { size: A4; margin: 0; }`
-- `@media print` rules to hide non-card elements
-- Grid: 3 columns × 4 rows of 65×65mm cards
-- `border-radius: 3mm` on card images
-- `object-fit: contain` with white background for non-square art
-- L-shaped corner tick marks via CSS pseudo-elements or thin border segments
-- Cards edge-to-edge (no gap) for full-sheet lamination workflow
+Separate inline template string (like `PAGE_TEMPLATE` in `web.py:65`). CSS-only layout designed for a two-cut lamination workflow:
+
+**Physical workflow:** print → cut paper cards along rounded outline → place in A4 lamination pouch (spaced apart) → laminate → cut laminate with ~2mm sealed border around each card.
+
+**Layout details:**
+- `@page { size: A4; margin: 0; }` with `@media print` rules to hide non-card elements
+- Grid: 3 columns × 4 rows of 59mm cells, edge-to-edge, centered within printable area (177mm wide, fits within typical ~5mm unprintable margins)
+- Printed cards are 59×59mm — leaves 3mm on each side for laminate seal, resulting in 65×65mm final laminated cards
+- Each cell shows a rounded outline (59×59mm, `border-radius: 3mm`) — visible at corners and grid perimeter
+- Artwork fills the full 59mm card (`object-fit: contain`, `border-radius: 3mm` clip, white background for non-square art)
+- First cut: straight lines along row/column boundaries (single cutting motion per line)
+- Second cut: freehand through laminate ~3mm outside each paper card
 
 ### Alpine.js State
 

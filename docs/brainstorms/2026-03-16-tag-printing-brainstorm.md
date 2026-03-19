@@ -19,8 +19,9 @@ The feature lives entirely on the server side and is UI-only (no client/playback
 2. Checkboxes appear on each row (hidden until this point to reduce visual clutter)
 3. User checks the mappings they want to print
 4. User clicks "Print selected" → opens a print view in a new browser tab
-5. The print view shows a grid of 65×65mm cards with cover art and L-shaped corner tick marks as cut guides
+5. The print view shows a grid of cards with cover art and a rounded 65×65mm cut outline per card
 6. User hits Ctrl+P, sets scale to 100%, prints on A4
+7. User cuts paper cards along rounded outline, places in lamination pouch, laminates, cuts laminate with ~2mm border
 
 **Artwork capture flow (one-time, per mapping):**
 - **Spotify URIs**: Server auto-fetches artwork from Spotify's public oEmbed endpoint (`https://open.spotify.com/oembed?url=…`) during `POST /mappings`, downloads the image, and stores it as base64 in `image_data`. No credentials needed; returns a ~640×640 px thumbnail (~250 DPI at 65mm — acceptable quality for shelf cards). If the fetch fails, mapping creation still succeeds with blank `image_data`.
@@ -34,7 +35,7 @@ The feature lives entirely on the server side and is UI-only (no client/playback
 - **Spotify oEmbed** — public API, no credentials, one HTTP call during mapping creation. Covers the most common use case automatically.
 - **SoCo Now Playing** — SoCo already fetches `album_art` alongside the URI in `get_current_track_info()`. Extending the existing `/now-playing` route costs nothing extra.
 - **Stored image data in DB** — artwork fetched and stored as base64-encoded image data per mapping. Avoids issues with external URLs expiring or being inaccessible at print time; images are always available for printing even if the original source goes offline.
-- **Full-sheet lamination workflow** — cards printed edge-to-edge, full-bleed; user laminates the A4 sheet first, then cuts through laminate with a rotary cutter. L-shaped corner tick marks guide cuts. No gaps between cards needed.
+- **Two-cut lamination workflow** — cards printed on A4 with spacing, each showing a rounded 65×65mm cut outline. User cuts out paper cards along the outline, places them spaced apart in an A4 lamination pouch, laminates, then cuts the laminate ~2mm outside each card for sealed edges. Only the rounded outline needs precision; the rest is rough cutting.
 
 ---
 
@@ -44,13 +45,13 @@ The feature lives entirely on the server side and is UI-only (no client/playback
 |---|---|---|
 | Print format | Sheet of selected tags | User picks which ones to reprint |
 | Card content | Cover art only, full bleed, slightly rounded corners (3mm radius) | Clean, minimal — rounded corners look nicer and are more durable after lamination; CSS `border-radius: 3mm` on card images, cut guides remain L-shaped tick marks |
-| Card size | 65×65 mm | User-specified; fits 12 cards on A4 in a 3×4 grid (leaves ~7.5mm side margins — tight but workable) |
+| Card size | 59×59mm printed, 65×65mm laminated | Printed card is 59mm to leave 3mm laminate seal on each side; fits 12 cards on A4 in a 3×4 grid |
 | Paper size | A4 | Standard |
-| Card spacing | Edge-to-edge (no gap) | Reduces cutting work; lamination applied to full sheet first |
-| Cut guides | Corner tick marks (L-shaped) | Minimal ink, easy to align a ruler |
+| Card spacing | Edge-to-edge (no gap) | Single straight cut separates whole row/column; rounded outline visible at corners and grid perimeter |
+| Cut guides | Solid rounded outline (65×65mm, 3mm radius) | Single precision cut line per card; laminate cut is freehand |
 | Image fit | `object-fit: contain` with white background | Letterbox for non-square artwork; Spotify art is square so mostly full-fill |
 | Image quality | ~250 DPI (640px) | Acceptable for decorative shelf cards |
-| Lamination | Full sheet → laminate → cut through laminate | Roll/pouch laminator on A4, then rotary cutter; clean sealed edges |
+| Lamination | Print → cut paper cards → place in pouch → laminate → cut laminate | Two-cut workflow: precision cut along rounded outline, then freehand ~2mm border through laminate for sealed edges |
 | Spotify artwork | oEmbed thumbnail (auto, no creds) | Covers the dominant use case without credentials |
 | Radio artwork | "Capture from Now Playing" button | Works for any Sonos content; leverages existing SoCo call |
 | Manual override | URL paste field alongside Capture button | Fallback for any content type |
@@ -94,7 +95,7 @@ The feature lives entirely on the server side and is UI-only (no client/playback
 - **250 DPI at 65mm acceptable?** Yes — fine for decorative shelf cards at normal viewing distance.
 - **CSS mm reliable for physical sizing?** Yes, when print dialog is at 100% scale and paper is set to A4.
 - **Spotify credentials needed?** No — oEmbed is a public endpoint.
-- **Lamination workflow?** Full A4 sheet → laminate → cut through laminate with rotary cutter. Full-bleed image, edge-to-edge cards, corner tick marks as cut guides.
+- **Lamination workflow?** Print → cut paper cards along rounded outline → place spaced in A4 lamination pouch → laminate → cut laminate ~2mm outside each card. Two precision cuts per card (paper + laminate), sealed edges on all sides.
 - **Image fit for non-square artwork?** `object-fit: contain` with white background (letterbox). Spotify art is square so mostly fills the card.
 - **No-artwork behavior?** Checkbox greyed out and disabled; must capture artwork first.
 - **Capture UX?** Save immediately on click; re-clicking overwrites. No preview, no clear button.
