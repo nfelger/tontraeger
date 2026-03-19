@@ -21,12 +21,17 @@ class TagMapper:
                     tag_uid TEXT PRIMARY KEY,
                     media_uri TEXT NOT NULL,
                     name TEXT NOT NULL DEFAULT '',
-                    shuffle INTEGER NOT NULL DEFAULT 0
+                    shuffle INTEGER NOT NULL DEFAULT 0,
+                    image_data TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
             try:
                 cursor.execute("ALTER TABLE tags ADD COLUMN shuffle INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE tags ADD COLUMN image_data TEXT NOT NULL DEFAULT ''")
             except sqlite3.OperationalError:
                 pass
             conn.commit()
@@ -49,13 +54,45 @@ class TagMapper:
         finally:
             conn.close()
 
-    def get_all_mappings(self) -> list[tuple[str, str, str, bool]]:
-        """Returns all (tag_uid, media_uri, name, shuffle) mappings."""
+    def get_all_mappings(self) -> list[tuple[str, str, str, bool, bool]]:
+        """Returns all (tag_uid, media_uri, name, shuffle, has_image) mappings."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT tag_uid, media_uri, name, shuffle FROM tags ORDER BY tag_uid")
-            return [(t, u, n, bool(s)) for t, u, n, s in cursor.fetchall()]
+            cursor.execute(
+                "SELECT tag_uid, media_uri, name, shuffle, image_data != '' FROM tags ORDER BY tag_uid"
+            )
+            return [(t, u, n, bool(s), bool(hi)) for t, u, n, s, hi in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_mappings_with_images(self, uids: list[str]) -> list[tuple[str, str]]:
+        """Returns (tag_uid, image_data) for the given UIDs that have images."""
+        if not uids:
+            return []
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" for _ in uids)
+            cursor.execute(
+                f"SELECT tag_uid, image_data FROM tags WHERE tag_uid IN ({placeholders}) AND image_data != ''",
+                uids,
+            )
+            return cursor.fetchall()
+        finally:
+            conn.close()
+
+    def upsert_image(self, tag_uid: str, image_data: str) -> bool:
+        """Stores base64-encoded image data for a mapping. Returns True if the mapping exists."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tags SET image_data = ? WHERE tag_uid = ?",
+                (image_data, tag_uid),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
         finally:
             conn.close()
 
@@ -89,10 +126,10 @@ class TagMapper:
             conn.close()
 
     def content_hash(self) -> str:
-        """SHA-256 of all mappings, for use as ETag."""
+        """SHA-256 of all mappings, for use as ETag. Excludes image data."""
         mappings = self.get_all_mappings()
         serialized = json.dumps(
-            [{"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s in mappings],
+            [{"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s, _hi in mappings],
             sort_keys=True,
         )
         return hashlib.sha256(serialized.encode()).hexdigest()

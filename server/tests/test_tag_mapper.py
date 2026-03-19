@@ -36,12 +36,69 @@ def test_get_all_mappings(temp_db: str) -> None:
     mapper.insert_mapping("ccc", "uri_c", "Charlie")
 
     mappings = mapper.get_all_mappings()
-    assert mappings == [("aaa", "uri_a", "Alpha", False), ("bbb", "uri_b", "", False), ("ccc", "uri_c", "Charlie", False)]
+    assert mappings == [
+        ("aaa", "uri_a", "Alpha", False, False),
+        ("bbb", "uri_b", "", False, False),
+        ("ccc", "uri_c", "Charlie", False, False),
+    ]
 
 
 def test_get_all_mappings_empty(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     assert mapper.get_all_mappings() == []
+
+
+def test_get_all_mappings_has_image_flag(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a", "Alpha")
+    mapper.upsert_image("aaa", "iVBORw0KGgo=")
+
+    mappings = mapper.get_all_mappings()
+    assert mappings[0] == ("aaa", "uri_a", "Alpha", False, True)
+
+
+def test_upsert_image(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    assert mapper.upsert_image("aaa", "base64data") is True
+
+    rows = mapper.get_mappings_with_images(["aaa"])
+    assert len(rows) == 1
+    assert rows[0] == ("aaa", "base64data")
+
+
+def test_upsert_image_nonexistent_tag(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    assert mapper.upsert_image("missing", "data") is False
+
+
+def test_upsert_image_overwrites(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    mapper.upsert_image("aaa", "old")
+    mapper.upsert_image("aaa", "new")
+
+    rows = mapper.get_mappings_with_images(["aaa"])
+    assert rows[0][1] == "new"
+
+
+def test_get_mappings_with_images(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    mapper.insert_mapping("aaa", "uri_a")
+    mapper.insert_mapping("bbb", "uri_b")
+    mapper.insert_mapping("ccc", "uri_c")
+    mapper.upsert_image("aaa", "img_a")
+    mapper.upsert_image("ccc", "img_c")
+
+    rows = mapper.get_mappings_with_images(["aaa", "bbb", "ccc"])
+    assert len(rows) == 2
+    assert ("aaa", "img_a") in rows
+    assert ("ccc", "img_c") in rows
+
+
+def test_get_mappings_with_images_empty_uids(temp_db: str) -> None:
+    mapper = TagMapper(db_path=temp_db)
+    assert mapper.get_mappings_with_images([]) == []
 
 
 def test_delete_mapping(temp_db: str) -> None:

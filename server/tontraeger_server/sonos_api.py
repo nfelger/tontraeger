@@ -72,6 +72,20 @@ class SonosAPI:
         uri = info.get("uri", "")
         return uri if uri else None
 
+    def get_current_track_info(self) -> dict[str, Optional[str]]:
+        """Return URI and album art URL of the currently playing track."""
+        if not self._speaker:
+            raise Exception("Speaker not initialized")
+
+        coordinator = self._speaker.group.coordinator
+        info = coordinator.get_current_track_info()
+        uri = info.get("uri", "")
+        album_art = info.get("album_art", "")
+        return {
+            "uri": uri if uri else None,
+            "album_art": album_art if album_art else None,
+        }
+
     def stop_playback(self) -> None:
         """Pause playback on speaker."""
         if not self._speaker:

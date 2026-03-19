@@ -75,13 +75,13 @@ def test_now_playing_returns_uri(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
 
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_uri.return_value = "x-sonosapi-radio:s25111"
+    mock_sonos.get_current_track_info.return_value = {"uri": "x-sonosapi-radio:s25111", "album_art": "http://192.168.1.1/art.jpg"}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": "x-sonosapi-radio:s25111"}
+    assert resp.json == {"uri": "x-sonosapi-radio:s25111", "album_art": "http://192.168.1.1/art.jpg"}
 
     web_module.sonos = original
 
@@ -90,13 +90,13 @@ def test_now_playing_nothing_playing(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
 
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_uri.return_value = None
+    mock_sonos.get_current_track_info.return_value = {"uri": None, "album_art": None}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": None}
+    assert resp.json == {"uri": None, "album_art": None}
 
     web_module.sonos = original
 
@@ -105,13 +105,13 @@ def test_now_playing_error(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
 
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_uri.side_effect = Exception("Speaker offline")
+    mock_sonos.get_current_track_info.side_effect = Exception("Speaker offline")
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": None}
+    assert resp.json == {"uri": None, "album_art": None}
 
     web_module.sonos = original
 
@@ -190,8 +190,8 @@ def test_api_mappings_with_data(client: FlaskClient) -> None:
     resp = client.get("/api/mappings")
     assert resp.status_code == 200
     assert len(resp.json["mappings"]) == 2
-    assert resp.json["mappings"][0] == {"tag_uid": "aaa", "media_uri": "uri_a", "name": "Alpha", "shuffle": False}
-    assert resp.json["mappings"][1] == {"tag_uid": "bbb", "media_uri": "uri_b", "name": "", "shuffle": False}
+    assert resp.json["mappings"][0] == {"tag_uid": "aaa", "media_uri": "uri_a", "name": "Alpha", "shuffle": False, "has_image": False}
+    assert resp.json["mappings"][1] == {"tag_uid": "bbb", "media_uri": "uri_b", "name": "", "shuffle": False, "has_image": False}
 
 
 def test_add_mapping_with_shuffle(client: FlaskClient) -> None:
@@ -313,29 +313,122 @@ def test_api_speakers_discovery_error(client: FlaskClient) -> None:
 def test_now_playing_with_speaker_param(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.SonosAPI") as MockSonosAPI:
         mock_instance = MagicMock()
-        mock_instance.get_current_track_uri.return_value = "x-radio:123"
+        mock_instance.get_current_track_info.return_value = {"uri": "x-radio:123", "album_art": None}
         MockSonosAPI.return_value = mock_instance
 
         resp = client.get("/now-playing?speaker=Kitchen")
         assert resp.status_code == 200
-        assert resp.json == {"uri": "x-radio:123"}
+        assert resp.json == {"uri": "x-radio:123", "album_art": None}
         MockSonosAPI.assert_called_once_with("Kitchen")
 
 
 def test_now_playing_with_unknown_speaker(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.SonosAPI", side_effect=Exception("not found")):
         resp = client.get("/now-playing?speaker=Nonexistent")
-        assert resp.json == {"uri": None}
+        assert resp.json == {"uri": None, "album_art": None}
 
 
 def test_now_playing_without_speaker_param_uses_default(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_uri.return_value = "x-default:999"
+    mock_sonos.get_current_track_info.return_value = {"uri": "x-default:999", "album_art": None}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
-    assert resp.json == {"uri": "x-default:999"}
+    assert resp.json == {"uri": "x-default:999", "album_art": None}
 
     web_module.sonos = original
+
+
+# ── Image routes ──────────────────────────────────────
+
+
+def test_set_image(client: FlaskClient) -> None:
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "img1", "media_uri": "uri_a"})
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
+        resp = client.post("/mappings/img1/image", json={"image_url": "http://example.com/art.jpg"})
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+    resp = client.get("/mappings/img1/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+
+
+def test_set_image_missing_url(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "img2", "media_uri": "uri_b"})
+    resp = client.post("/mappings/img2/image", json={})
+    assert resp.status_code == 400
+
+
+def test_set_image_fetch_fails(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "img3", "media_uri": "uri_c"})
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value=None):
+        resp = client.post("/mappings/img3/image", json={"image_url": "http://bad.url/nope"})
+    assert resp.status_code == 502
+
+
+def test_set_image_nonexistent_mapping(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value="base64data"):
+        resp = client.post("/mappings/no-such-tag/image", json={"image_url": "http://example.com/art.jpg"})
+    assert resp.status_code == 404
+
+
+def test_get_image_no_image(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "noimg", "media_uri": "uri_d"})
+    resp = client.get("/mappings/noimg/image")
+    assert resp.status_code == 404
+
+
+def test_get_image_detects_png(client: FlaskClient) -> None:
+    import base64
+    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
+    b64 = base64.b64encode(png_header).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "png1", "media_uri": "uri_e"})
+    import tontraeger_server.web as web_module
+    web_module.mapper.upsert_image("png1", b64)
+
+    resp = client.get("/mappings/png1/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/png"
+
+
+def test_add_mapping_auto_fetches_spotify_artwork(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_spotify_artwork", return_value="spotify_art_b64") as mock_fetch:
+        client.post("/mappings", data={
+            "tag_uid": "spot1",
+            "media_uri": "https://open.spotify.com/album/abc123",
+            "name": "My Album",
+        })
+        mock_fetch.assert_called_once_with("https://open.spotify.com/album/abc123")
+
+    resp = client.get("/api/mappings")
+    assert resp.json["mappings"][0]["has_image"] is True
+
+
+def test_add_mapping_spotify_artwork_failure_still_creates_mapping(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_spotify_artwork", return_value=None):
+        client.post("/mappings", data={
+            "tag_uid": "spot2",
+            "media_uri": "https://open.spotify.com/playlist/xyz",
+            "name": "Playlist",
+        })
+
+    resp = client.get("/api/mappings")
+    assert len(resp.json["mappings"]) == 1
+    assert resp.json["mappings"][0]["has_image"] is False
+
+
+def test_add_mapping_non_spotify_no_auto_fetch(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_spotify_artwork") as mock_fetch:
+        client.post("/mappings", data={
+            "tag_uid": "radio1",
+            "media_uri": "x-sonosapi-radio:s25111",
+            "name": "Radio",
+        })
+        mock_fetch.assert_not_called()

@@ -1,7 +1,11 @@
+import base64
+import json as json_mod
 import secrets
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
 from werkzeug.wrappers import Response
@@ -61,6 +65,45 @@ def get_sonos() -> Optional[SonosAPI]:
         except Exception:
             return None
     return sonos
+
+
+def fetch_image_as_base64(url: str) -> Optional[str]:
+    """Fetches an image from a URL and returns it as a base64-encoded string."""
+    try:
+        req = Request(url, headers={"User-Agent": "tontraeger/1.0"})
+        with urlopen(req, timeout=10) as resp:  # noqa: S310
+            data = resp.read()
+            return base64.b64encode(data).decode("ascii")
+    except (URLError, OSError, ValueError):
+        return None
+
+
+def fetch_spotify_artwork(spotify_url: str) -> Optional[str]:
+    """Fetches artwork for a Spotify URL via the public oEmbed endpoint."""
+    oembed_url = f"https://open.spotify.com/oembed?url={spotify_url}"
+    try:
+        req = Request(oembed_url, headers={"User-Agent": "tontraeger/1.0"})
+        with urlopen(req, timeout=10) as resp:  # noqa: S310
+            data = json_mod.loads(resp.read())
+            thumbnail_url = data.get("thumbnail_url")
+            if thumbnail_url:
+                return fetch_image_as_base64(thumbnail_url)
+    except (URLError, OSError, ValueError, KeyError):
+        pass
+    return None
+
+
+def detect_image_content_type(data: bytes) -> str:
+    """Detects image content type from magic bytes."""
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if data[:4] == b"\x89PNG":
+        return "image/png"
+    if data[:4] == b"GIF8":
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -505,7 +548,7 @@ PAGE_TEMPLATE = """
   </div>
 
   {% if mappings %}
-    {% for tag_uid, media_uri, name, shuffle in mappings %}
+    {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
     <div class="card">
       <div class="card-groove"></div>
       <div class="card-body">
@@ -607,19 +650,19 @@ def now_playing() -> Response:
     if speaker_name:
         try:
             target = SonosAPI(speaker_name)
-            uri = target.get_current_track_uri()
+            info = target.get_current_track_info()
         except Exception:
-            uri = None
-        return jsonify(uri=uri)
+            info = {"uri": None, "album_art": None}
+        return jsonify(**info)
 
     active_sonos = sonos or get_sonos()
     if active_sonos is None:
-        return jsonify(uri=None)
+        return jsonify(uri=None, album_art=None)
     try:
-        uri = active_sonos.get_current_track_uri()
+        info = active_sonos.get_current_track_info()
     except Exception:
-        uri = None
-    return jsonify(uri=uri)
+        info = {"uri": None, "album_art": None}
+    return jsonify(**info)
 
 
 @app.route("/api/speakers")
@@ -641,6 +684,10 @@ def add_mapping() -> Response:
     shuffle = request.form.get("shuffle") == "on"
     if tag_uid and media_uri:
         mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
+        if media_uri.startswith("https://open.spotify.com/"):
+            image_data = fetch_spotify_artwork(media_uri)
+            if image_data:
+                mapper.upsert_image(tag_uid, image_data)
         flash(f"Mapping added for tag {name or tag_uid}")
     return redirect(url_for("index"))
 
@@ -650,6 +697,30 @@ def delete_mapping(tag_uid: str) -> Response:
     mapper.delete_mapping(tag_uid)
     flash(f"Mapping removed for tag {tag_uid}")
     return redirect(url_for("index"))
+
+
+@app.route("/mappings/<tag_uid>/image", methods=["POST"])
+def set_image(tag_uid: str) -> Response | tuple[Response, int]:
+    data = request.get_json(silent=True)
+    if not data or not data.get("image_url", "").strip():
+        return jsonify(error="missing image_url"), 400
+    image_url = data["image_url"].strip()
+    image_data = fetch_image_as_base64(image_url)
+    if not image_data:
+        return jsonify(error="failed to fetch image"), 502
+    if not mapper.upsert_image(tag_uid, image_data):
+        return jsonify(error="mapping not found"), 404
+    return jsonify(ok=True)
+
+
+@app.route("/mappings/<tag_uid>/image", methods=["GET"])
+def get_image(tag_uid: str) -> Response | tuple[Response, int]:
+    rows = mapper.get_mappings_with_images([tag_uid])
+    if not rows:
+        return jsonify(error="no image"), 404
+    raw = base64.b64decode(rows[0][1])
+    content_type = detect_image_content_type(raw)
+    return Response(raw, content_type=content_type)
 
 
 @app.route("/api/unknown-tags", methods=["POST"])
@@ -674,7 +745,8 @@ def api_mappings() -> Response:
     mappings = mapper.get_all_mappings()
     resp = jsonify(
         mappings=[
-            {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s in mappings
+            {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s, "has_image": hi}
+            for t, u, n, s, hi in mappings
         ]
     )
     resp.headers["ETag"] = etag
