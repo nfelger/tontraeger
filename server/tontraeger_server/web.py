@@ -925,26 +925,13 @@ PRINT_TEMPLATE = """
     grid-template-columns: repeat(3, 59mm);
     grid-auto-rows: 59mm;
     justify-content: center;
-    align-content: center;
-    min-height: 297mm;
+    padding-top: 8mm;
   }
 
   .cell {
     width: 59mm;
     height: 59mm;
     position: relative;
-  }
-
-  /* Rounded cut outline — visible at corners and grid perimeter;
-     guides the paper cut before lamination */
-  .card-outline {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 59mm;
-    height: 59mm;
-    border: 0.3mm solid #aaa;
-    border-radius: 3mm;
   }
 
   /* Artwork fills the 59mm card, clipped to rounded corners */
@@ -957,6 +944,19 @@ PRINT_TEMPLATE = """
     object-fit: contain;
     border-radius: 3mm;
     display: block;
+  }
+
+  /* Rounded cut outline — overlays on top of artwork so it's
+     visible even on white-background images */
+  .card-outline {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 59mm;
+    height: 59mm;
+    border: 0.3mm solid #aaa;
+    border-radius: 3mm;
+    z-index: 1;
   }
 
   .instructions {
@@ -987,8 +987,8 @@ PRINT_TEMPLATE = """
     <div class="grid">
       {% for uid in page_cards %}
       <div class="cell">
-        <div class="card-outline"></div>
         <img src="{{ url_for('get_image', tag_uid=uid) }}" alt="artwork">
+        <div class="card-outline"></div>
       </div>
       {% endfor %}
     </div>
