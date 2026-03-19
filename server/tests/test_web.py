@@ -359,6 +359,20 @@ def test_set_image(client: FlaskClient) -> None:
     assert resp.content_type == "image/jpeg"
 
 
+def test_set_image_via_base64_upload(client: FlaskClient) -> None:
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "img_up", "media_uri": "uri_up"})
+    resp = client.post("/mappings/img_up/image", json={"image_data": jpeg_stub})
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+    resp = client.get("/mappings/img_up/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+
+
 def test_set_image_missing_url(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "img2", "media_uri": "uri_b"})
     resp = client.post("/mappings/img2/image", json={})
@@ -452,6 +466,7 @@ def test_print_view_renders_cards(client: FlaskClient) -> None:
     assert b"/mappings/p1/image" in resp.data
     assert b"/mappings/p2/image" in resp.data
     assert b"65mm" in resp.data
+    assert b"tick-tl" in resp.data
 
 
 def test_print_view_skips_missing_images(client: FlaskClient) -> None:

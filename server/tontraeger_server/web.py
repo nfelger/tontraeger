@@ -714,6 +714,10 @@ PAGE_TEMPLATE = """
                 :disabled="!manualUrl.trim()">
           Save
         </button>
+        <label class="btn btn-save-url" style="cursor:pointer;">
+          File&hellip;
+          <input type="file" accept="image/*" style="display:none" @change="uploadFile($event)">
+        </label>
       </div>
       <div class="card-actions">
         <form method="post" action="{{ url_for('delete_mapping', tag_uid=tag_uid) }}" style="display:inline"
@@ -846,6 +850,30 @@ document.addEventListener('alpine:init', () => {
             } catch (e) {
                 alert('Error saving image');
             }
+        },
+
+        uploadFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async () => {
+                const base64 = reader.result.split(',')[1];
+                try {
+                    const resp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image_data: base64 })
+                    });
+                    if (resp.ok) {
+                        location.reload();
+                    } else {
+                        alert('Failed to upload image');
+                    }
+                } catch (e) {
+                    alert('Error uploading image');
+                }
+            };
+            reader.readAsDataURL(file);
         }
     }));
 });
@@ -907,6 +935,18 @@ PRINT_TEMPLATE = """
     display: block;
   }
 
+  /* L-shaped corner tick marks */
+  .tick {
+    position: absolute;
+    width: 4mm;
+    height: 4mm;
+    z-index: 1;
+  }
+  .tick-tl { top: 0; left: 0; border-top: 0.2mm solid #999; border-left: 0.2mm solid #999; }
+  .tick-tr { top: 0; right: 0; border-top: 0.2mm solid #999; border-right: 0.2mm solid #999; }
+  .tick-bl { bottom: 0; left: 0; border-bottom: 0.2mm solid #999; border-left: 0.2mm solid #999; }
+  .tick-br { bottom: 0; right: 0; border-bottom: 0.2mm solid #999; border-right: 0.2mm solid #999; }
+
   .instructions {
     text-align: center;
     padding: 1rem;
@@ -934,6 +974,8 @@ PRINT_TEMPLATE = """
     <div class="grid">
       {% for uid in page_cards %}
       <div class="card">
+        <span class="tick tick-tl"></span><span class="tick tick-tr"></span>
+        <span class="tick tick-bl"></span><span class="tick tick-br"></span>
         <img src="{{ url_for('get_image', tag_uid=uid) }}" alt="artwork">
       </div>
       {% endfor %}
@@ -1023,12 +1065,18 @@ def delete_mapping(tag_uid: str) -> Response:
 @app.route("/mappings/<tag_uid>/image", methods=["POST"])
 def set_image(tag_uid: str) -> Response | tuple[Response, int]:
     data = request.get_json(silent=True)
-    if not data or not data.get("image_url", "").strip():
-        return jsonify(error="missing image_url"), 400
-    image_url = data["image_url"].strip()
-    image_data = fetch_image_as_base64(image_url)
-    if not image_data:
-        return jsonify(error="failed to fetch image"), 502
+    if not data:
+        return jsonify(error="missing image_url or image_data"), 400
+    # Accept either a URL to fetch or raw base64 data
+    if data.get("image_data", "").strip():
+        image_data = data["image_data"].strip()
+    elif data.get("image_url", "").strip():
+        image_url = data["image_url"].strip()
+        image_data = fetch_image_as_base64(image_url)
+        if not image_data:
+            return jsonify(error="failed to fetch image"), 502
+    else:
+        return jsonify(error="missing image_url or image_data"), 400
     if not mapper.upsert_image(tag_uid, image_data):
         return jsonify(error="mapping not found"), 404
     return jsonify(ok=True)
