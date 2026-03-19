@@ -890,6 +890,12 @@ PRINT_TEMPLATE = """
 <meta charset="utf-8">
 <title>Print Tags</title>
 <style>
+  /* Layout: 3×4 grid of 70mm cells on A4 (210×297mm).
+     Each cell contains:
+     - Outer cut line (straight, 70×70mm) — first cut: separate printed cards
+     - Inner cut line (rounded 3mm, 65×65mm) — second cut: trim laminated cards
+     - Artwork (59×59mm, centered) — fits inside rounded corners */
+
   @page {
     size: A4;
     margin: 0;
@@ -913,39 +919,41 @@ PRINT_TEMPLATE = """
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(3, 65mm);
-    grid-auto-rows: 65mm;
+    grid-template-columns: repeat(3, 70mm);
+    grid-auto-rows: 70mm;
     justify-content: center;
-    padding-top: 6.5mm;
+    padding-top: 4.5mm; /* (297 - 4*70) / 2 ≈ 4.5mm vertical centering */
   }
 
-  .card {
+  /* Outer cut line — straight rectangle, full cell */
+  .cell {
+    width: 70mm;
+    height: 70mm;
+    position: relative;
+    border: 0.2mm dashed #bbb;
+  }
+
+  /* Inner cut line — rounded 65×65mm, centered in cell */
+  .card-outline {
+    position: absolute;
+    top: 2.5mm;
+    left: 2.5mm;
     width: 65mm;
     height: 65mm;
-    position: relative;
-    overflow: hidden;
-    background: #fff;
+    border: 0.2mm solid #999;
+    border-radius: 3mm;
   }
 
-  .card img {
-    width: 100%;
-    height: 100%;
+  /* Artwork — centered inside rounded area */
+  .cell img {
+    position: absolute;
+    top: 5.5mm;
+    left: 5.5mm;
+    width: 59mm;
+    height: 59mm;
     object-fit: contain;
-    border-radius: 3mm;
     display: block;
   }
-
-  /* L-shaped corner tick marks */
-  .tick {
-    position: absolute;
-    width: 4mm;
-    height: 4mm;
-    z-index: 1;
-  }
-  .tick-tl { top: 0; left: 0; border-top: 0.2mm solid #999; border-left: 0.2mm solid #999; }
-  .tick-tr { top: 0; right: 0; border-top: 0.2mm solid #999; border-right: 0.2mm solid #999; }
-  .tick-bl { bottom: 0; left: 0; border-bottom: 0.2mm solid #999; border-left: 0.2mm solid #999; }
-  .tick-br { bottom: 0; right: 0; border-bottom: 0.2mm solid #999; border-right: 0.2mm solid #999; }
 
   .instructions {
     text-align: center;
@@ -967,15 +975,15 @@ PRINT_TEMPLATE = """
 </head>
 <body>
   <div class="instructions">
-    Set print scale to <strong>100%</strong> and paper to <strong>A4</strong> for correct 65&times;65mm card sizing.
+    Set print scale to <strong>100%</strong> and paper to <strong>A4</strong> for correct sizing.<br>
+    Dashed line = first cut (separate cards). Solid rounded line = second cut (trim laminated cards, 65&times;65mm).
   </div>
   {% for page_cards in pages %}
   <div class="sheet">
     <div class="grid">
       {% for uid in page_cards %}
-      <div class="card">
-        <span class="tick tick-tl"></span><span class="tick tick-tr"></span>
-        <span class="tick tick-bl"></span><span class="tick tick-br"></span>
+      <div class="cell">
+        <div class="card-outline"></div>
         <img src="{{ url_for('get_image', tag_uid=uid) }}" alt="artwork">
       </div>
       {% endfor %}

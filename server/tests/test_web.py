@@ -466,7 +466,7 @@ def test_print_view_renders_cards(client: FlaskClient) -> None:
     assert b"/mappings/p1/image" in resp.data
     assert b"/mappings/p2/image" in resp.data
     assert b"65mm" in resp.data
-    assert b"tick-tl" in resp.data
+    assert b"card-outline" in resp.data
 
 
 def test_print_view_skips_missing_images(client: FlaskClient) -> None:
