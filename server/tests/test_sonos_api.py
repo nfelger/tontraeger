@@ -100,31 +100,6 @@ def test_play_uri_no_speaker():
         api.play_uri("x-sonosapi-radio:test")
 
 
-def test_get_current_track_uri(sonos_api, mock_soco_speaker):
-    """Test getting the URI of the currently playing track."""
-    mock_soco_speaker.get_current_track_info.return_value = {
-        "uri": "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0",
-        "title": "Some Station",
-    }
-    assert sonos_api.get_current_track_uri() == "x-sonosapi-radio:s25111?sid=254&flags=8224&sn=0"
-
-
-def test_get_current_track_uri_nothing_playing(sonos_api, mock_soco_speaker):
-    """Test that None is returned when nothing is playing."""
-    mock_soco_speaker.get_current_track_info.return_value = {"uri": ""}
-    assert sonos_api.get_current_track_uri() is None
-
-
-def test_get_current_track_uri_no_speaker():
-    """Test that get_current_track_uri raises exception when speaker not initialized."""
-    api = SonosAPI.__new__(SonosAPI)
-    api.speaker_name = "Test"
-    api._speaker = None
-
-    with pytest.raises(Exception, match="Speaker not initialized"):
-        api.get_current_track_uri()
-
-
 def test_stop_playback_no_speaker():
     """Test that stop_playback raises exception when speaker not initialized."""
     api = SonosAPI.__new__(SonosAPI)

@@ -1,5 +1,5 @@
 import base64
-import json as json_mod
+import json
 import secrets
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -67,12 +67,22 @@ def get_sonos() -> Optional[SonosAPI]:
     return sonos
 
 
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
 def fetch_image_as_base64(url: str) -> Optional[str]:
     """Fetches an image from a URL and returns it as a base64-encoded string."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return None
     try:
         req = Request(url, headers={"User-Agent": "tontraeger/1.0"})
         with urlopen(req, timeout=10) as resp:  # noqa: S310
-            data = resp.read()
+            data = resp.read(MAX_IMAGE_SIZE + 1)
+            if len(data) > MAX_IMAGE_SIZE:
+                return None
             return base64.b64encode(data).decode("ascii")
     except (URLError, OSError, ValueError):
         return None
@@ -84,7 +94,7 @@ def fetch_spotify_artwork(spotify_url: str) -> Optional[str]:
     try:
         req = Request(oembed_url, headers={"User-Agent": "tontraeger/1.0"})
         with urlopen(req, timeout=10) as resp:  # noqa: S310
-            data = json_mod.loads(resp.read())
+            data = json.loads(resp.read())
             thumbnail_url = data.get("thumbnail_url")
             if thumbnail_url:
                 return fetch_image_as_base64(thumbnail_url)
@@ -665,12 +675,12 @@ PAGE_TEMPLATE = """
 
   {% if mappings %}
     {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
-    <div class="card" x-data="artworkRow('{{ tag_uid }}', {{ 'true' if has_image else 'false' }})">
+    <div class="card" x-data="artworkRow({{ tag_uid|tojson }})">
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
                  {% if not has_image %}disabled title="Capture artwork first"{% endif %}
-                 @change="$event.target.checked ? $store.printMode.selected.add('{{ tag_uid }}') : $store.printMode.selected.delete('{{ tag_uid }}')">
+                 @change="$event.target.checked ? $store.printMode.selected.add({{ tag_uid|tojson }}) : $store.printMode.selected.delete({{ tag_uid|tojson }})">
         </div>
       </template>
       {% if has_image %}
@@ -780,9 +790,8 @@ document.addEventListener('alpine:init', () => {
         }
     }));
 
-    Alpine.data('artworkRow', (tagUid, hasImage) => ({
+    Alpine.data('artworkRow', (tagUid) => ({
         tagUid,
-        hasImage,
         capturing: false,
         captureText: 'Capture',
         manualUrl: '',
@@ -897,27 +906,6 @@ PRINT_TEMPLATE = """
     border-radius: 3mm;
     display: block;
   }
-
-  /* L-shaped corner tick marks */
-  .card::before,
-  .card::after {
-    content: '';
-    position: absolute;
-    background: #ccc;
-    z-index: 1;
-  }
-
-  /* Top-left corner */
-  .card:nth-child(1)::before { top: 0; left: 0; width: 4mm; height: 0.2mm; }
-  .card:nth-child(1)::after  { top: 0; left: 0; width: 0.2mm; height: 4mm; }
-
-  /* Use outline marks at grid edges via a separate overlay */
-  .tick {
-    position: absolute;
-    background: #ccc;
-  }
-  .tick-h { width: 4mm; height: 0.2mm; }
-  .tick-v { width: 0.2mm; height: 4mm; }
 
   .instructions {
     text-align: center;
@@ -1053,7 +1041,9 @@ def get_image(tag_uid: str) -> Response | tuple[Response, int]:
         return jsonify(error="no image"), 404
     raw = base64.b64decode(rows[0][1])
     content_type = detect_image_content_type(raw)
-    return Response(raw, content_type=content_type)
+    resp = Response(raw, content_type=content_type)
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @app.route("/api/unknown-tags", methods=["POST"])

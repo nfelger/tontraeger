@@ -62,16 +62,6 @@ class SonosAPI:
             coordinator.add_uri_to_queue(uri)
         coordinator.play_from_queue(0)
 
-    def get_current_track_uri(self) -> Optional[str]:
-        """Return the media URI of the currently playing track, or None."""
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
-
-        coordinator = self._speaker.group.coordinator
-        info = coordinator.get_current_track_info()
-        uri = info.get("uri", "")
-        return uri if uri else None
-
     def get_current_track_info(self) -> dict[str, Optional[str]]:
         """Return URI and album art URL of the currently playing track."""
         if not self._speaker:
