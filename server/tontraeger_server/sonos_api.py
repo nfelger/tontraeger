@@ -1,6 +1,5 @@
 from soco import SoCo
 from soco.plugins.sharelink import ShareLinkPlugin
-from typing import Optional
 import soco
 
 
@@ -16,10 +15,9 @@ class SonosAPI:
             Exception: If no speakers found or speaker name doesn't match
         """
         self.speaker_name = speaker_name
-        self._speaker: Optional[SoCo] = None
-        self._discover_speaker()
+        self._speaker: SoCo = self._discover_speaker()
 
-    def _discover_speaker(self) -> None:
+    def _discover_speaker(self) -> SoCo:
         """
         Find speaker by name from soco.discover().
 
@@ -30,14 +28,15 @@ class SonosAPI:
         if not speakers:
             raise Exception("No Sonos speakers found on network")
 
-        self._speaker = next(
+        speaker = next(
             (s for s in speakers if s.player_name == self.speaker_name), None
         )
-        if not self._speaker:
+        if not speaker:
             available = ", ".join(s.player_name for s in speakers)
             raise Exception(
                 f"Speaker '{self.speaker_name}' not found. Available speakers: {available}"
             )
+        return speaker
 
     def play_uri(self, uri: str) -> None:
         """
@@ -49,9 +48,6 @@ class SonosAPI:
         Args:
             uri: A SoCo-compatible media URI
         """
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
-
         # Playback commands must go to the group coordinator. If the speaker
         # is a slave in a group, SoCo raises SoCoSlaveException otherwise.
         coordinator = self._speaker.group.coordinator
@@ -62,11 +58,8 @@ class SonosAPI:
             coordinator.add_uri_to_queue(uri)
         coordinator.play_from_queue(0)
 
-    def get_current_track_info(self) -> dict[str, Optional[str]]:
+    def get_current_track_info(self) -> dict[str, str | None]:
         """Return URI of the currently playing track."""
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
-
         coordinator = self._speaker.group.coordinator
         info = coordinator.get_current_track_info()
         uri = info.get("uri", "")
@@ -74,7 +67,4 @@ class SonosAPI:
 
     def stop_playback(self) -> None:
         """Pause playback on speaker."""
-        if not self._speaker:
-            raise Exception("Speaker not initialized")
-
         self._speaker.group.coordinator.pause()

@@ -90,21 +90,3 @@ def test_stop_playback(sonos_api, mock_soco_speaker):
     mock_soco_speaker.pause.assert_called_once()
 
 
-def test_play_uri_no_speaker():
-    """Test that play_uri raises exception when speaker not initialized."""
-    api = SonosAPI.__new__(SonosAPI)
-    api.speaker_name = "Test"
-    api._speaker = None
-
-    with pytest.raises(Exception, match="Speaker not initialized"):
-        api.play_uri("x-sonosapi-radio:test")
-
-
-def test_stop_playback_no_speaker():
-    """Test that stop_playback raises exception when speaker not initialized."""
-    api = SonosAPI.__new__(SonosAPI)
-    api.speaker_name = "Test"
-    api._speaker = None
-
-    with pytest.raises(Exception, match="Speaker not initialized"):
-        api.stop_playback()

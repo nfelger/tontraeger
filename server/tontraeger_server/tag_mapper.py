@@ -1,7 +1,6 @@
 import hashlib
 import json
 import sqlite3
-from typing import Optional
 
 DATABASE_FILE = "tags.db"
 
@@ -110,7 +109,7 @@ class TagMapper:
         finally:
             conn.close()
 
-    def get_uri(self, tag_uid: str) -> Optional[str]:
+    def get_uri(self, tag_uid: str) -> str | None:
         """
         Retrieves the media URI (or special command) associated with the given tag UID.
         Returns None if no mapping exists.
@@ -129,11 +128,14 @@ class TagMapper:
         finally:
             conn.close()
 
-    def content_hash(self) -> str:
-        """SHA-256 of all mappings, for use as ETag. Excludes image data."""
-        mappings = self.get_all_mappings()
+    def compute_hash(self, mappings: list[tuple[str, str, str, bool, bool]]) -> str:
+        """SHA-256 of the given mappings, for use as ETag. Excludes image data."""
         serialized = json.dumps(
             [{"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for t, u, n, s, _hi in mappings],
             sort_keys=True,
         )
         return hashlib.sha256(serialized.encode()).hexdigest()
+
+    def content_hash(self) -> str:
+        """SHA-256 of all mappings, for use as ETag. Excludes image data."""
+        return self.compute_hash(self.get_all_mappings())

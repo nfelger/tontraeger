@@ -4,8 +4,8 @@ import json
 import secrets
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Optional
 from urllib.error import URLError
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
@@ -13,7 +13,7 @@ from werkzeug.wrappers import Response
 
 import soco
 
-from tontraeger_server.config import DATABASE_PATH, SONOS_SPEAKER_NAME
+from tontraeger_server.config import DATABASE_PATH
 from tontraeger_server.sonos_api import SonosAPI
 from tontraeger_server.tag_mapper import TagMapper
 
@@ -54,27 +54,13 @@ app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
 
 mapper = TagMapper(DATABASE_PATH)
-sonos: Optional[SonosAPI] = None
 unknown_tags = UnknownTagInbox()
-
-
-def get_sonos() -> Optional[SonosAPI]:
-    global sonos
-    if sonos is None:
-        try:
-            sonos = SonosAPI(SONOS_SPEAKER_NAME)
-        except Exception:
-            return None
-    return sonos
-
 
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
-def fetch_image_as_base64(url: str) -> Optional[str]:
+def fetch_image_as_base64(url: str) -> str | None:
     """Fetches an image from a URL and returns it as a base64-encoded string."""
-    from urllib.parse import urlparse
-
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return None
@@ -89,9 +75,9 @@ def fetch_image_as_base64(url: str) -> Optional[str]:
         return None
 
 
-def fetch_spotify_artwork(spotify_url: str) -> Optional[str]:
+def fetch_spotify_artwork(spotify_url: str) -> str | None:
     """Fetches artwork for a Spotify URL via the public oEmbed endpoint."""
-    oembed_url = f"https://open.spotify.com/oembed?url={spotify_url}"
+    oembed_url = f"https://open.spotify.com/oembed?url={quote(spotify_url, safe='')}"
     try:
         req = Request(oembed_url, headers={"User-Agent": "tontraeger/1.0"})
         with urlopen(req, timeout=10) as resp:  # noqa: S310
@@ -966,19 +952,11 @@ def index() -> str:
 @app.route("/now-playing")
 def now_playing() -> Response:
     speaker_name = request.args.get("speaker")
-    if speaker_name:
-        try:
-            target = SonosAPI(speaker_name)
-            info = target.get_current_track_info()
-        except Exception:
-            info = {"uri": None}
-        return jsonify(uri=info.get("uri"))
-
-    active_sonos = sonos or get_sonos()
-    if active_sonos is None:
+    if not speaker_name:
         return jsonify(uri=None)
     try:
-        info = active_sonos.get_current_track_info()
+        target = SonosAPI(speaker_name)
+        info = target.get_current_track_info()
     except Exception:
         info = {"uri": None}
     return jsonify(uri=info.get("uri"))
@@ -1026,6 +1004,12 @@ def set_image(tag_uid: str) -> Response | tuple[Response, int]:
     # Accept either a URL to fetch or raw base64 data
     if data.get("image_data", "").strip():
         image_data = data["image_data"].strip()
+        try:
+            raw = base64.b64decode(image_data)
+        except Exception:
+            return jsonify(error="invalid base64"), 400
+        if len(raw) > MAX_IMAGE_SIZE:
+            return jsonify(error="image too large"), 413
     elif data.get("image_url", "").strip():
         image_url = data["image_url"].strip()
         image_data = fetch_image_as_base64(image_url)
@@ -1071,10 +1055,10 @@ def api_get_unknown_tags() -> Response:
 
 @app.route("/api/mappings")
 def api_mappings() -> Response:
-    etag = mapper.content_hash()
+    mappings = mapper.get_all_mappings()
+    etag = mapper.compute_hash(mappings)
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
-    mappings = mapper.get_all_mappings()
     resp = jsonify(
         mappings=[
             {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s, "has_image": hi}

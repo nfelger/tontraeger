@@ -71,49 +71,10 @@ def test_add_empty_fields_ignored(client: FlaskClient) -> None:
     assert b"No mappings yet" in resp.data
 
 
-def test_now_playing_returns_uri(client: FlaskClient) -> None:
-    import tontraeger_server.web as web_module
-
-    mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": "x-sonosapi-radio:s25111"}
-    original = web_module.sonos
-    web_module.sonos = mock_sonos
-
-    resp = client.get("/now-playing")
-    assert resp.status_code == 200
-    assert resp.json == {"uri": "x-sonosapi-radio:s25111"}
-
-    web_module.sonos = original
-
-
-def test_now_playing_nothing_playing(client: FlaskClient) -> None:
-    import tontraeger_server.web as web_module
-
-    mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": None}
-    original = web_module.sonos
-    web_module.sonos = mock_sonos
-
+def test_now_playing_without_speaker_returns_null(client: FlaskClient) -> None:
     resp = client.get("/now-playing")
     assert resp.status_code == 200
     assert resp.json == {"uri": None}
-
-    web_module.sonos = original
-
-
-def test_now_playing_error(client: FlaskClient) -> None:
-    import tontraeger_server.web as web_module
-
-    mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.side_effect = Exception("Speaker offline")
-    original = web_module.sonos
-    web_module.sonos = mock_sonos
-
-    resp = client.get("/now-playing")
-    assert resp.status_code == 200
-    assert resp.json == {"uri": None}
-
-    web_module.sonos = original
 
 
 def test_api_unknown_tags_empty(client: FlaskClient) -> None:
@@ -328,17 +289,6 @@ def test_now_playing_with_unknown_speaker(client: FlaskClient) -> None:
         assert resp.json == {"uri": None}
 
 
-def test_now_playing_without_speaker_param_uses_default(client: FlaskClient) -> None:
-    import tontraeger_server.web as web_module
-    mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": "x-default:999"}
-    original = web_module.sonos
-    web_module.sonos = mock_sonos
-
-    resp = client.get("/now-playing")
-    assert resp.json == {"uri": "x-default:999"}
-
-    web_module.sonos = original
 
 
 # ── Image routes ──────────────────────────────────────
@@ -371,6 +321,28 @@ def test_set_image_via_base64_upload(client: FlaskClient) -> None:
     resp = client.get("/mappings/img_up/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
+
+
+def test_set_image_invalid_base64(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "bad64", "media_uri": "uri"})
+    resp = client.post("/mappings/bad64/image", json={"image_data": "not!valid!base64!"})
+    assert resp.status_code == 400
+    assert resp.json["error"] == "invalid base64"
+
+
+def test_set_image_too_large(client: FlaskClient) -> None:
+    import base64
+    import tontraeger_server.web as web_module
+    original_max = web_module.MAX_IMAGE_SIZE
+    web_module.MAX_IMAGE_SIZE = 100  # 100 bytes for test
+    try:
+        client.post("/mappings", data={"tag_uid": "big1", "media_uri": "uri"})
+        large_data = base64.b64encode(b"\xff\xd8" + b"\x00" * 200).decode("ascii")
+        resp = client.post("/mappings/big1/image", json={"image_data": large_data})
+        assert resp.status_code == 413
+        assert resp.json["error"] == "image too large"
+    finally:
+        web_module.MAX_IMAGE_SIZE = original_max
 
 
 def test_set_image_missing_url(client: FlaskClient) -> None:
