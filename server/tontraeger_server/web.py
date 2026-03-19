@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import secrets
 from collections import OrderedDict
@@ -534,22 +535,6 @@ PAGE_TEMPLATE = """
     border-color: var(--amber);
   }
 
-  .btn-capture {
-    background: transparent;
-    color: var(--green);
-    border: 1px solid var(--green);
-    padding: 0.3rem 0.6rem;
-    font-size: 0.7rem;
-    white-space: nowrap;
-  }
-  .btn-capture:hover {
-    background: rgba(106, 159, 92, 0.12);
-  }
-  .btn-capture:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
   .btn-save-url {
     background: transparent;
     color: var(--amber);
@@ -657,7 +642,7 @@ PAGE_TEMPLATE = """
     <h2>Mappings</h2>
     <span class="badge">{{ mappings|length }}</span>
     <div style="margin-left:auto; display:flex; gap:0.4rem;">
-      <button x-data x-show="!$store.printMode.active" type="button" class="btn btn-capture"
+      <button x-data x-show="!$store.printMode.active" type="button" class="btn btn-save-url"
               @click="$store.printMode.active = true">Print tags</button>
       <template x-data x-if="$store.printMode.active">
         <div style="display:flex; gap:0.4rem;">
@@ -700,12 +685,6 @@ PAGE_TEMPLATE = """
         {% endif %}
       </div>
       <div class="artwork-controls">
-        <button type="button" class="btn btn-capture"
-                @click="captureFromNowPlaying()"
-                :disabled="!$data.selectedSpeaker || capturing"
-                x-text="captureText">
-          Capture
-        </button>
         <div class="form-field-url">
           <input type="text" x-model="manualUrl" placeholder="Image URL&hellip;" @keydown.enter="saveManualUrl()">
         </div>
@@ -796,42 +775,7 @@ document.addEventListener('alpine:init', () => {
 
     Alpine.data('artworkRow', (tagUid) => ({
         tagUid,
-        capturing: false,
-        captureText: 'Capture',
         manualUrl: '',
-        get selectedSpeaker() { return Alpine.store('speaker').selected; },
-
-        async captureFromNowPlaying() {
-            if (!this.selectedSpeaker) return;
-            this.capturing = true;
-            this.captureText = 'Fetching\u2026';
-            try {
-                const npResp = await fetch('/now-playing?speaker=' + encodeURIComponent(this.selectedSpeaker));
-                const npData = await npResp.json();
-                if (!npData.album_art) {
-                    this.captureText = 'No art';
-                    setTimeout(() => { this.captureText = 'Capture'; }, 2000);
-                    return;
-                }
-                const saveResp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image_url: npData.album_art })
-                });
-                if (saveResp.ok) {
-                    this.captureText = 'Saved!';
-                    setTimeout(() => location.reload(), 500);
-                } else {
-                    this.captureText = 'Failed';
-                    setTimeout(() => { this.captureText = 'Capture'; }, 2000);
-                }
-            } catch (e) {
-                this.captureText = 'Error';
-                setTimeout(() => { this.captureText = 'Capture'; }, 2000);
-            } finally {
-                this.capturing = false;
-            }
-        },
 
         async saveManualUrl() {
             const url = this.manualUrl.trim();
@@ -1027,17 +971,17 @@ def now_playing() -> Response:
             target = SonosAPI(speaker_name)
             info = target.get_current_track_info()
         except Exception:
-            info = {"uri": None, "album_art": None}
-        return jsonify(**info)
+            info = {"uri": None}
+        return jsonify(uri=info.get("uri"))
 
     active_sonos = sonos or get_sonos()
     if active_sonos is None:
-        return jsonify(uri=None, album_art=None)
+        return jsonify(uri=None)
     try:
         info = active_sonos.get_current_track_info()
     except Exception:
-        info = {"uri": None, "album_art": None}
-    return jsonify(**info)
+        info = {"uri": None}
+    return jsonify(uri=info.get("uri"))
 
 
 @app.route("/api/speakers")
@@ -1099,10 +1043,15 @@ def get_image(tag_uid: str) -> Response | tuple[Response, int]:
     rows = mapper.get_mappings_with_images([tag_uid])
     if not rows:
         return jsonify(error="no image"), 404
-    raw = base64.b64decode(rows[0][1])
+    image_data = rows[0][1]
+    etag = hashlib.sha256(image_data.encode()).hexdigest()
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+    raw = base64.b64decode(image_data)
     content_type = detect_image_content_type(raw)
     resp = Response(raw, content_type=content_type)
-    resp.headers["Cache-Control"] = "public, max-age=86400"
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "public, no-cache"
     return resp
 
 

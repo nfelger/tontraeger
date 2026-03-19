@@ -75,13 +75,13 @@ def test_now_playing_returns_uri(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
 
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": "x-sonosapi-radio:s25111", "album_art": "http://192.168.1.1/art.jpg"}
+    mock_sonos.get_current_track_info.return_value = {"uri": "x-sonosapi-radio:s25111"}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": "x-sonosapi-radio:s25111", "album_art": "http://192.168.1.1/art.jpg"}
+    assert resp.json == {"uri": "x-sonosapi-radio:s25111"}
 
     web_module.sonos = original
 
@@ -90,13 +90,13 @@ def test_now_playing_nothing_playing(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
 
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": None, "album_art": None}
+    mock_sonos.get_current_track_info.return_value = {"uri": None}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": None, "album_art": None}
+    assert resp.json == {"uri": None}
 
     web_module.sonos = original
 
@@ -111,7 +111,7 @@ def test_now_playing_error(client: FlaskClient) -> None:
 
     resp = client.get("/now-playing")
     assert resp.status_code == 200
-    assert resp.json == {"uri": None, "album_art": None}
+    assert resp.json == {"uri": None}
 
     web_module.sonos = original
 
@@ -313,30 +313,30 @@ def test_api_speakers_discovery_error(client: FlaskClient) -> None:
 def test_now_playing_with_speaker_param(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.SonosAPI") as MockSonosAPI:
         mock_instance = MagicMock()
-        mock_instance.get_current_track_info.return_value = {"uri": "x-radio:123", "album_art": None}
+        mock_instance.get_current_track_info.return_value = {"uri": "x-radio:123"}
         MockSonosAPI.return_value = mock_instance
 
         resp = client.get("/now-playing?speaker=Kitchen")
         assert resp.status_code == 200
-        assert resp.json == {"uri": "x-radio:123", "album_art": None}
+        assert resp.json == {"uri": "x-radio:123"}
         MockSonosAPI.assert_called_once_with("Kitchen")
 
 
 def test_now_playing_with_unknown_speaker(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.SonosAPI", side_effect=Exception("not found")):
         resp = client.get("/now-playing?speaker=Nonexistent")
-        assert resp.json == {"uri": None, "album_art": None}
+        assert resp.json == {"uri": None}
 
 
 def test_now_playing_without_speaker_param_uses_default(client: FlaskClient) -> None:
     import tontraeger_server.web as web_module
     mock_sonos = MagicMock()
-    mock_sonos.get_current_track_info.return_value = {"uri": "x-default:999", "album_art": None}
+    mock_sonos.get_current_track_info.return_value = {"uri": "x-default:999"}
     original = web_module.sonos
     web_module.sonos = mock_sonos
 
     resp = client.get("/now-playing")
-    assert resp.json == {"uri": "x-default:999", "album_art": None}
+    assert resp.json == {"uri": "x-default:999"}
 
     web_module.sonos = original
 
@@ -396,6 +396,31 @@ def test_get_image_no_image(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "noimg", "media_uri": "uri_d"})
     resp = client.get("/mappings/noimg/image")
     assert resp.status_code == 404
+
+
+def test_get_image_etag(client: FlaskClient) -> None:
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "etag1", "media_uri": "uri"})
+    import tontraeger_server.web as web_module
+    web_module.mapper.upsert_image("etag1", jpeg_stub)
+
+    resp1 = client.get("/mappings/etag1/image")
+    assert resp1.status_code == 200
+    assert "ETag" in resp1.headers
+    etag = resp1.headers["ETag"]
+
+    # Same ETag returns 304
+    resp2 = client.get("/mappings/etag1/image", headers={"If-None-Match": etag})
+    assert resp2.status_code == 304
+
+    # After updating image, old ETag returns 200 with new ETag
+    new_stub = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20).decode("ascii")
+    web_module.mapper.upsert_image("etag1", new_stub)
+    resp3 = client.get("/mappings/etag1/image", headers={"If-None-Match": etag})
+    assert resp3.status_code == 200
+    assert resp3.headers["ETag"] != etag
 
 
 def test_get_image_detects_png(client: FlaskClient) -> None:
