@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import secrets
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from urllib.error import URLError
@@ -9,6 +10,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, url_for
+from markupsafe import escape
 from werkzeug.wrappers import Response
 
 import soco
@@ -646,7 +648,7 @@ PAGE_TEMPLATE = """
 
   {% if mappings %}
     {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
-    <div class="card" x-data='artworkRow({{ tag_uid|tojson }})'>
+    <div class="card" x-data>
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
@@ -655,9 +657,9 @@ PAGE_TEMPLATE = """
         </div>
       </template>
       {% if has_image %}
-        <img class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
+        <img id="thumb-{{ tag_uid }}" class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
       {% else %}
-        <div class="card-thumb-placeholder" title="No artwork">&#9835;</div>
+        <div id="thumb-{{ tag_uid }}" class="card-thumb-placeholder" title="No artwork">&#9835;</div>
       {% endif %}
       <div class="card-body">
         <div class="card-tag">{{ name if name else tag_uid }}{% if shuffle %} <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>{% endif %}</div>
@@ -671,18 +673,22 @@ PAGE_TEMPLATE = """
         {% endif %}
       </div>
       <div class="artwork-controls">
-        <div class="form-field-url">
-          <input type="text" x-model="manualUrl" placeholder="Image URL&hellip;" @keydown.enter="saveManualUrl()">
-        </div>
-        <button type="button" class="btn btn-save-url"
-                @click="saveManualUrl()"
-                :disabled="!manualUrl.trim()">
-          Save
-        </button>
-        <label class="btn btn-save-url" style="cursor:pointer;">
-          File&hellip;
-          <input type="file" accept="image/*" style="display:none" @change="uploadFile($event)">
-        </label>
+        <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
+              hx-target="#thumb-{{ tag_uid }}" hx-swap="outerHTML">
+          <div class="form-field-url">
+            <input type="text" name="image_url" placeholder="Image URL&hellip;">
+          </div>
+          <button type="submit" class="btn btn-save-url">Save</button>
+        </form>
+        <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
+              hx-target="#thumb-{{ tag_uid }}" hx-swap="outerHTML"
+              hx-encoding="multipart/form-data">
+          <label class="btn btn-save-url" style="cursor:pointer;">
+            File&hellip;
+            <input type="file" name="image_file" accept="image/*" style="display:none"
+                   onchange="this.form.requestSubmit()">
+          </label>
+        </form>
       </div>
       <div class="card-actions">
         <form method="post" action="{{ url_for('delete_mapping', tag_uid=tag_uid) }}" style="display:inline"
@@ -759,67 +765,6 @@ document.addEventListener('alpine:init', () => {
         }
     }));
 
-    Alpine.data('artworkRow', (tagUid) => ({
-        tagUid,
-        manualUrl: '',
-
-        refreshThumb() {
-            const src = '/mappings/' + encodeURIComponent(this.tagUid) + '/image?_=' + Date.now();
-            const card = this.$el;
-            const existing = card.querySelector('.card-thumb, .card-thumb-placeholder');
-            if (existing) {
-                const img = document.createElement('img');
-                img.className = 'card-thumb';
-                img.alt = 'artwork';
-                img.src = src;
-                existing.replaceWith(img);
-            }
-            this.manualUrl = '';
-        },
-
-        async saveManualUrl() {
-            const url = this.manualUrl.trim();
-            if (!url) return;
-            try {
-                const resp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image_url: url })
-                });
-                if (resp.ok) {
-                    this.refreshThumb();
-                } else {
-                    alert('Failed to save image');
-                }
-            } catch (e) {
-                alert('Error saving image');
-            }
-        },
-
-        uploadFile(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async () => {
-                const base64 = reader.result.split(',')[1];
-                try {
-                    const resp = await fetch('/mappings/' + encodeURIComponent(this.tagUid) + '/image', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ image_data: base64 })
-                    });
-                    if (resp.ok) {
-                        this.refreshThumb();
-                    } else {
-                        alert('Failed to upload image');
-                    }
-                } catch (e) {
-                    alert('Error uploading image');
-                }
-            };
-            reader.readAsDataURL(file);
-        }
-    }));
 });
 </script>
 </body>
@@ -1010,29 +955,79 @@ def delete_mapping(tag_uid: str) -> Response:
     return redirect(url_for("index"))
 
 
-@app.route("/mappings/<tag_uid>/image", methods=["POST"])
-def set_image(tag_uid: str) -> Response | tuple[Response, int]:
+def _thumb_html(tag_uid: str) -> str:
+    """Return an <img> fragment for the given tag's artwork."""
+    safe_uid = escape(tag_uid)
+    src = url_for("get_image", tag_uid=tag_uid)
+    return (
+        f'<img id="thumb-{safe_uid}" class="card-thumb"'
+        f' src="{src}?v={int(time.time())}"'
+        f' alt="artwork" loading="lazy">'
+    )
+
+
+def _parse_image_payload() -> tuple[str | None, str | None, int]:
+    """Extract image_data (base64) from the request. Returns (image_data, error, status)."""
+    # Form submission: file upload or URL field
+    if request.content_type and (
+        "multipart/form-data" in request.content_type
+        or "application/x-www-form-urlencoded" in request.content_type
+    ):
+        uploaded = request.files.get("image_file")
+        if uploaded and uploaded.filename:
+            raw = uploaded.read(MAX_IMAGE_SIZE + 1)
+            if len(raw) > MAX_IMAGE_SIZE:
+                return None, "image too large", 413
+            return base64.b64encode(raw).decode("ascii"), None, 0
+        image_url = request.form.get("image_url", "").strip()
+        if image_url:
+            image_data = fetch_image_as_base64(image_url)
+            if not image_data:
+                return None, "failed to fetch image", 502
+            return image_data, None, 0
+        return None, "missing image_url or image_file", 400
+
+    # JSON API submission
     data = request.get_json(silent=True)
     if not data:
-        return jsonify(error="missing image_url or image_data"), 400
-    # Accept either a URL to fetch or raw base64 data
+        return None, "missing image_url or image_data", 400
     if data.get("image_data", "").strip():
         image_data = data["image_data"].strip()
         try:
             raw = base64.b64decode(image_data)
         except Exception:
-            return jsonify(error="invalid base64"), 400
+            return None, "invalid base64", 400
         if len(raw) > MAX_IMAGE_SIZE:
-            return jsonify(error="image too large"), 413
-    elif data.get("image_url", "").strip():
+            return None, "image too large", 413
+        return image_data, None, 0
+    if data.get("image_url", "").strip():
         image_url = data["image_url"].strip()
         image_data = fetch_image_as_base64(image_url)
         if not image_data:
-            return jsonify(error="failed to fetch image"), 502
-    else:
-        return jsonify(error="missing image_url or image_data"), 400
+            return None, "failed to fetch image", 502
+        return image_data, None, 0
+    return None, "missing image_url or image_data", 400
+
+
+def _wants_html() -> bool:
+    """True if the request came from htmx or a browser form submission."""
+    return "HX-Request" in request.headers
+
+
+@app.route("/mappings/<tag_uid>/image", methods=["POST"])
+def set_image(tag_uid: str) -> Response | tuple[Response, int]:
+    image_data, error, status = _parse_image_payload()
+    if error:
+        if _wants_html():
+            return Response(f"<span>{escape(error)}</span>", status=status)
+        return jsonify(error=error), status
+    assert image_data is not None
     if not mapper.upsert_image(tag_uid, image_data):
+        if _wants_html():
+            return Response("<span>mapping not found</span>", status=404)
         return jsonify(error="mapping not found"), 404
+    if _wants_html():
+        return Response(_thumb_html(tag_uid))
     return jsonify(ok=True)
 
 

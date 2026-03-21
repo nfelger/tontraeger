@@ -345,6 +345,82 @@ def test_set_image_too_large(client: FlaskClient) -> None:
         web_module.MAX_IMAGE_SIZE = original_max
 
 
+HX_HEADERS = {"HX-Request": "true"}
+
+
+def test_set_image_form_url(client: FlaskClient) -> None:
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "furl1", "media_uri": "uri"})
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
+        resp = client.post("/mappings/furl1/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+    assert resp.status_code == 200
+    assert b"<img" in resp.data
+    assert b'id="thumb-furl1"' in resp.data
+
+    resp = client.get("/mappings/furl1/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+
+
+def test_set_image_form_file_upload(client: FlaskClient) -> None:
+    import io
+
+    client.post("/mappings", data={"tag_uid": "fup1", "media_uri": "uri"})
+    data = {"image_file": (io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 20), "photo.jpg")}
+    resp = client.post("/mappings/fup1/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
+    assert resp.status_code == 200
+    assert b"<img" in resp.data
+    assert b'id="thumb-fup1"' in resp.data
+
+    resp = client.get("/mappings/fup1/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+
+
+def test_set_image_form_file_too_large(client: FlaskClient) -> None:
+    import io
+    import tontraeger_server.web as web_module
+    original_max = web_module.MAX_IMAGE_SIZE
+    web_module.MAX_IMAGE_SIZE = 100
+    try:
+        client.post("/mappings", data={"tag_uid": "fbig", "media_uri": "uri"})
+        data = {"image_file": (io.BytesIO(b"\xff\xd8" + b"\x00" * 200), "big.jpg")}
+        resp = client.post("/mappings/fbig/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
+        assert resp.status_code == 413
+        assert b"image too large" in resp.data
+    finally:
+        web_module.MAX_IMAGE_SIZE = original_max
+
+
+def test_set_image_form_nonexistent_mapping(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value="base64data"):
+        resp = client.post("/mappings/no-such/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+    assert resp.status_code == 404
+    assert b"<span>" in resp.data
+    assert b"mapping not found" in resp.data
+
+
+def test_set_image_form_missing_fields(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "fmiss", "media_uri": "uri"})
+    resp = client.post("/mappings/fmiss/image", data={}, headers=HX_HEADERS)
+    assert resp.status_code == 400
+    assert b"<span>" in resp.data
+
+
+def test_set_image_json_still_returns_json(client: FlaskClient) -> None:
+    """JSON POST without HX-Request header returns JSON, not HTML."""
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "jsoncheck", "media_uri": "uri"})
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
+        resp = client.post("/mappings/jsoncheck/image", json={"image_url": "http://example.com/art.jpg"})
+    assert resp.status_code == 200
+    assert resp.json == {"ok": True}
+
+
 def test_set_image_missing_url(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "img2", "media_uri": "uri_b"})
     resp = client.post("/mappings/img2/image", json={})
