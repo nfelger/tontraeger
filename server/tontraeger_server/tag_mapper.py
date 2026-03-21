@@ -57,6 +57,22 @@ class TagMapper:
         finally:
             conn.close()
 
+    def get_mapping(self, tag_uid: str) -> tuple[str, str, str, bool, bool] | None:
+        """Returns (tag_uid, media_uri, name, shuffle, has_image) for a single mapping, or None."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT tag_uid, media_uri, name, shuffle, image_data != '' FROM tags WHERE tag_uid = ?",
+                (tag_uid,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return (row[0], row[1], row[2], bool(row[3]), bool(row[4]))
+            return None
+        finally:
+            conn.close()
+
     def get_all_mappings(self) -> list[tuple[str, str, str, bool, bool]]:
         """Returns all (tag_uid, media_uri, name, shuffle, has_image) mappings."""
         conn = sqlite3.connect(self.db_path)

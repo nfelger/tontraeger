@@ -375,9 +375,13 @@ def test_set_image_form_colon_uid_css_safe(client: FlaskClient) -> None:
     assert resp.status_code == 200
     assert b'id="thumb-04-3d-24-82"' in resp.data
 
-    # Main page also uses CSS-safe IDs
+    # Main page and edit form use CSS-safe IDs
     resp = client.get("/")
     assert b'id="thumb-04-3d-24-82"' in resp.data
+    assert b'id="card-04-3d-24-82"' in resp.data
+
+    # Edit form has hx-target with CSS-safe ID for image upload
+    resp = client.get("/mappings/04:3d:24:82/edit-form")
     assert b'hx-target="#thumb-04-3d-24-82"' in resp.data
 
 
@@ -536,6 +540,139 @@ def test_add_mapping_non_spotify_no_auto_fetch(client: FlaskClient) -> None:
             "name": "Radio",
         })
         mock_fetch.assert_not_called()
+
+
+# ── Edit mappings ─────────────────────────────────────
+
+
+def test_edit_form_get(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "e1", "media_uri": "uri_a", "name": "Alpha", "shuffle": "on"})
+
+    resp = client.get("/mappings/e1/edit-form")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'id="card-e1"' in html
+    assert 'value="Alpha"' in html
+    assert 'value="uri_a"' in html
+    assert "checked" in html
+    assert "Save" in html
+    assert "Cancel" in html
+    assert "Delete mapping" in html
+
+
+def test_edit_form_get_nonexistent(client: FlaskClient) -> None:
+    resp = client.get("/mappings/no-such/edit-form")
+    assert resp.status_code == 404
+
+
+def test_card_get(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "c1", "media_uri": "uri_c", "name": "CardTest"})
+
+    resp = client.get("/mappings/c1/card")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'id="card-c1"' in html
+    assert "CardTest" in html
+    assert "Edit" in html
+
+
+def test_card_get_nonexistent(client: FlaskClient) -> None:
+    resp = client.get("/mappings/no-such/card")
+    assert resp.status_code == 404
+
+
+def test_edit_mapping(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "ed1", "media_uri": "old_uri", "name": "Old Name"})
+
+    resp = client.post(
+        "/mappings/ed1/edit",
+        data={"name": "New Name", "media_uri": "new_uri", "shuffle": "on"},
+        headers=HX_HEADERS,
+    )
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert "New Name" in html
+    assert "new_uri" in html
+    assert 'id="card-ed1"' in html
+    # Should be back in view mode (has Edit button, not Save)
+    assert "Edit" in html
+
+    # Verify the data was actually saved
+    resp = client.get("/api/mappings")
+    m = resp.json["mappings"][0]
+    assert m["name"] == "New Name"
+    assert m["media_uri"] == "new_uri"
+    assert m["shuffle"] is True
+
+
+def test_edit_mapping_empty_uri(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "ed2", "media_uri": "valid_uri", "name": "Test"})
+
+    resp = client.post(
+        "/mappings/ed2/edit",
+        data={"name": "Test", "media_uri": "", "shuffle": ""},
+        headers=HX_HEADERS,
+    )
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    # Should stay in edit mode with error
+    assert "Media URI is required" in html
+    assert "card-editing" in html
+
+    # Original data should be unchanged
+    resp = client.get("/api/mappings")
+    assert resp.json["mappings"][0]["media_uri"] == "valid_uri"
+
+
+def test_edit_mapping_nonexistent(client: FlaskClient) -> None:
+    resp = client.post(
+        "/mappings/no-such/edit",
+        data={"name": "x", "media_uri": "y"},
+        headers=HX_HEADERS,
+    )
+    assert resp.status_code == 404
+
+
+def test_edit_mapping_preserves_image(client: FlaskClient) -> None:
+    import base64
+    import tontraeger_server.web as web_module
+
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+    client.post("/mappings", data={"tag_uid": "ed3", "media_uri": "old_uri", "name": "Img Test"})
+    web_module.mapper.upsert_image("ed3", jpeg_stub)
+
+    # Edit the mapping
+    client.post(
+        "/mappings/ed3/edit",
+        data={"name": "Updated", "media_uri": "new_uri"},
+        headers=HX_HEADERS,
+    )
+
+    # Image should still be there
+    resp = client.get("/mappings/ed3/image")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+
+
+def test_edit_form_colon_uid_css_safe(client: FlaskClient) -> None:
+    """Edit form for tag UIDs with colons uses CSS-safe IDs."""
+    client.post("/mappings", data={"tag_uid": "04:ab:cd", "media_uri": "uri"})
+
+    resp = client.get("/mappings/04:ab:cd/edit-form")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'id="card-04-ab-cd"' in html
+    assert 'id="thumb-04-ab-cd"' in html
+
+
+def test_index_shows_edit_button(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "idx1", "media_uri": "uri_a", "name": "Test"})
+    resp = client.get("/")
+    html = resp.data.decode()
+    assert "Edit" in html
+    assert 'id="card-idx1"' in html
+    # Should NOT have the delete button in view mode
+    assert "Delete mapping" not in html
 
 
 # ── Print view ────────────────────────────────────────

@@ -1,5 +1,7 @@
-- Allow mappings to be edited
+- Bug: 'cancel' on the mapping delete confirmation still deletes the mapping
+- Review existing Alpine.js usage and migrate to pure htmx where possible (see CLAUDE.md UI Principles)
 - Bulk add share links (newline separated), pull image and title from Spotify (in fact: always pull the tag name from the spotify title if not already filled in. for playlists, take title, for albums take artist+album title)
 - Add "repeat" flag to tags
 - Some solution to overlay mapping names onto cover art - spotify cover art for playlists doesn't always reveal what the playlist is about, just shows four albums
 - Allow re-capturing the cover art from a spotify source
+- Extract "Now Playing" into a standalone convenience tool (not tied to new mapping or edit forms)

@@ -535,6 +535,171 @@ PAGE_TEMPLATE = """
     border-color: var(--amber);
   }
 
+  /* ── Edit mode ─────────────────────────────── */
+  .btn-edit {
+    background: transparent;
+    color: var(--muted);
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--border);
+  }
+  .btn-edit:hover {
+    color: var(--amber);
+    border-color: var(--amber);
+  }
+
+  .card-editing {
+    border-color: var(--amber);
+    flex-wrap: wrap;
+  }
+
+  .card-editing .card-body {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  .card-editing .card-thumb,
+  .card-editing .card-thumb-placeholder {
+    order: 1;
+  }
+
+  .card-edit-footer {
+    order: 3;
+    flex: 1 1 100%;
+    display: flex;
+    align-items: center;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .card-actions-edit {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  .btn-sm {
+    padding: 0.35rem 0.8rem;
+    font-size: 0.75rem;
+    margin-top: 0;
+  }
+
+  .edit-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .edit-fields .form-field input {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--cream);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+  }
+
+  .edit-fields .form-field input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .edit-fields .form-field input:focus {
+    outline: none;
+    border-color: var(--amber);
+  }
+
+  .edit-fields .form-field input::placeholder {
+    color: #4a4540;
+  }
+
+  .edit-image-controls {
+    margin-bottom: 0.6rem;
+  }
+
+  .edit-image-controls > label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+
+  .edit-image-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  .edit-checkbox-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .edit-checkbox-wrap input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--amber);
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .edit-checkbox-wrap label {
+    font-size: 0.82rem;
+    color: var(--cream);
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    margin: 0;
+  }
+
+  .edit-image-url-form {
+    flex: 1;
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  .edit-image-url-form input {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--cream);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+  }
+
+  .edit-image-url-form input::placeholder {
+    color: #4a4540;
+  }
+
+  .edit-image-url-form input:focus {
+    outline: none;
+    border-color: var(--amber);
+  }
+
+  .edit-error {
+    background: rgba(192, 57, 43, 0.15);
+    border: 1px solid var(--red);
+    color: var(--red-hi);
+    padding: 0.4rem 0.7rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+
   /* ── Responsive ──────────────────────────── */
   @media (max-width: 500px) {
     header h1 { font-size: 2rem; }
@@ -544,6 +709,7 @@ PAGE_TEMPLATE = """
     .card-groove { display: none; }
     .artwork-controls { flex-wrap: wrap; }
     .artwork-controls .form-field-url input { width: 120px; }
+    .card-actions-edit { flex-wrap: wrap; }
   }
 </style>
 </head>
@@ -647,57 +813,9 @@ PAGE_TEMPLATE = """
     </div>
   </div>
 
-  {% if mappings %}
-    {% for tag_uid, media_uri, name, shuffle, has_image in mappings %}
-    <div class="card" x-data>
-      <template x-if="$store.printMode.active">
-        <div class="print-checkbox">
-          <input type="checkbox"
-                 {% if not has_image %}disabled title="Capture artwork first"{% endif %}
-                 @change='$event.target.checked ? $store.printMode.selected.add({{ tag_uid|tojson }}) : $store.printMode.selected.delete({{ tag_uid|tojson }})'>
-        </div>
-      </template>
-      {% if has_image %}
-        <img id="thumb-{{ tag_uid|css_id }}" class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
-      {% else %}
-        <div id="thumb-{{ tag_uid|css_id }}" class="card-thumb-placeholder" title="No artwork">&#9835;</div>
-      {% endif %}
-      <div class="card-body">
-        <div class="card-tag">{{ name if name else tag_uid }}{% if shuffle %} <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>{% endif %}</div>
-        {% if name %}
-          <div class="card-uri" title="{{ tag_uid }}">{{ tag_uid }}</div>
-        {% endif %}
-        {% if media_uri.upper() == 'STOP' %}
-          <div class="card-uri stop-cmd">&#9632; stop playback</div>
-        {% else %}
-          <div class="card-uri" title="{{ media_uri }}">{{ media_uri }}</div>
-        {% endif %}
-      </div>
-      <div class="artwork-controls">
-        <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
-              hx-target="#thumb-{{ tag_uid|css_id }}" hx-swap="outerHTML">
-          <div class="form-field-url">
-            <input type="text" name="image_url" placeholder="Image URL&hellip;">
-          </div>
-          <button type="submit" class="btn btn-save-url">Save</button>
-        </form>
-        <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
-              hx-target="#thumb-{{ tag_uid|css_id }}" hx-swap="outerHTML"
-              hx-encoding="multipart/form-data">
-          <label class="btn btn-save-url" style="cursor:pointer;">
-            File&hellip;
-            <input type="file" name="image_file" accept="image/*" style="display:none"
-                   onchange="this.form.requestSubmit()">
-          </label>
-        </form>
-      </div>
-      <div class="card-actions">
-        <form method="post" action="{{ url_for('delete_mapping', tag_uid=tag_uid) }}" style="display:inline"
-              onsubmit="return confirm('Remove this mapping?')">
-          <button type="submit" class="btn btn-delete">Remove</button>
-        </form>
-      </div>
-    </div>
+  {% if card_htmls %}
+    {% for card_html in card_htmls %}
+      {{ card_html|safe }}
     {% endfor %}
   {% else %}
     <div class="empty">No mappings yet &mdash; scan a tag and add it above.</div>
@@ -906,7 +1024,8 @@ def print_tags() -> str:
 @app.route("/")
 def index() -> str:
     mappings = mapper.get_all_mappings()
-    return render_template_string(PAGE_TEMPLATE, mappings=mappings)
+    card_htmls = [_card_view_html(*m) for m in mappings]
+    return render_template_string(PAGE_TEMPLATE, mappings=mappings, card_htmls=card_htmls)
 
 
 @app.route("/now-playing")
@@ -949,6 +1068,45 @@ def add_mapping() -> Response:
     return redirect(url_for("index"))
 
 
+@app.route("/mappings/<tag_uid>/edit-form")
+def edit_form(tag_uid: str) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(tag_uid)
+    if not mapping:
+        return Response("mapping not found", status=404)
+    return Response(_card_edit_html(*mapping))
+
+
+@app.route("/mappings/<tag_uid>/card")
+def card_view(tag_uid: str) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(tag_uid)
+    if not mapping:
+        return Response("mapping not found", status=404)
+    return Response(_card_view_html(*mapping))
+
+
+@app.route("/mappings/<tag_uid>/edit", methods=["POST"])
+def edit_mapping(tag_uid: str) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(tag_uid)
+    if not mapping:
+        if _wants_html():
+            return Response("mapping not found", status=404)
+        return jsonify(error="mapping not found"), 404
+    media_uri = request.form.get("media_uri", "").strip()
+    name = request.form.get("name", "").strip()
+    shuffle = request.form.get("shuffle") == "on"
+    if not media_uri:
+        _, _, old_name, old_shuffle, has_image = mapping
+        return Response(
+            _card_edit_html(tag_uid, "", name or old_name, shuffle, has_image, error="Media URI is required")
+        )
+    mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
+    if _wants_html():
+        updated = mapper.get_mapping(tag_uid)
+        assert updated is not None
+        return Response(_card_view_html(*updated))
+    return redirect(url_for("index"))
+
+
 @app.route("/mappings/<tag_uid>/delete", methods=["POST"])
 def delete_mapping(tag_uid: str) -> Response:
     mapper.delete_mapping(tag_uid)
@@ -965,6 +1123,157 @@ def _thumb_html(tag_uid: str) -> str:
         f' src="{src}?v={int(time.time())}"'
         f' alt="artwork" loading="lazy">'
     )
+
+
+def _card_view_html(tag_uid: str, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
+    """Return a view-mode card HTML fragment for the given mapping."""
+    css_id = escape(tag_uid.replace(":", "-"))
+    e_tag_uid = escape(tag_uid)
+    e_name = escape(name)
+    e_media_uri = escape(media_uri)
+    tag_uid_json = json.dumps(tag_uid)
+
+    if has_image:
+        thumb = (
+            f'<img id="thumb-{css_id}" class="card-thumb"'
+            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
+        )
+    else:
+        thumb = (
+            f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
+            f' title="No artwork">&#9835;</div>'
+        )
+
+    display_name = e_name if name else e_tag_uid
+    shuffle_badge = ' <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>' if shuffle else ""
+    tag_line = f'<div class="card-uri" title="{e_tag_uid}">{e_tag_uid}</div>' if name else ""
+
+    if media_uri.upper() == "STOP":
+        uri_line = '<div class="card-uri stop-cmd">&#9632; stop playback</div>'
+    else:
+        uri_line = f'<div class="card-uri" title="{e_media_uri}">{e_media_uri}</div>'
+
+    edit_url = url_for("edit_form", tag_uid=tag_uid)
+
+    return f"""<div class="card" id="card-{css_id}" x-data>
+      <template x-if="$store.printMode.active">
+        <div class="print-checkbox">
+          <input type="checkbox"
+                 {"disabled " + 'title="Capture artwork first"' if not has_image else ""}
+                 @change='{tag_uid_json} && ($event.target.checked ? $store.printMode.selected.add({tag_uid_json}) : $store.printMode.selected.delete({tag_uid_json}))'>
+        </div>
+      </template>
+      {thumb}
+      <div class="card-body">
+        <div class="card-tag">{display_name}{shuffle_badge}</div>
+        {tag_line}
+        {uri_line}
+      </div>
+      <div class="card-actions" x-show="!$store.printMode.active">
+        <button type="button" class="btn btn-edit"
+                hx-get="{edit_url}"
+                hx-target="#card-{css_id}"
+                hx-swap="outerHTML">Edit</button>
+      </div>
+    </div>"""
+
+
+def _card_edit_html(
+    tag_uid: str, media_uri: str, name: str, shuffle: bool, has_image: bool, error: str | None = None
+) -> str:
+    """Return an edit-mode card HTML fragment for the given mapping."""
+    css_id = escape(tag_uid.replace(":", "-"))
+    e_tag_uid = escape(tag_uid)
+    e_name = escape(name)
+    e_media_uri = escape(media_uri)
+
+    if has_image:
+        thumb = (
+            f'<img id="thumb-{css_id}" class="card-thumb"'
+            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
+        )
+    else:
+        thumb = (
+            f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
+            f' title="No artwork">&#9835;</div>'
+        )
+
+    edit_url = url_for("edit_mapping", tag_uid=tag_uid)
+    card_url = url_for("card_view", tag_uid=tag_uid)
+    delete_url = url_for("delete_mapping", tag_uid=tag_uid)
+    image_url = url_for("set_image", tag_uid=tag_uid)
+
+    checked = " checked" if shuffle else ""
+    error_html = f'<div class="edit-error">{escape(error)}</div>' if error else ""
+
+    return f"""<div class="card card-editing" id="card-{css_id}">
+      {thumb}
+      <div class="card-body">
+        {error_html}
+        <div class="edit-fields">
+          <div class="form-field">
+            <label>Name</label>
+            <input type="text" name="name" value="{e_name}" placeholder="e.g. Kids playlist"
+                   form="edit-form-{css_id}">
+          </div>
+          <div class="form-field">
+            <label>Tag UID</label>
+            <input type="text" value="{e_tag_uid}" disabled>
+          </div>
+          <div class="form-field">
+            <label>Media URI</label>
+            <input type="text" name="media_uri" value="{e_media_uri}" placeholder="Spotify link, Sonos URI, or STOP" required
+                   form="edit-form-{css_id}">
+          </div>
+          <div class="form-field">
+            <label>Shuffle</label>
+            <div class="edit-checkbox-wrap">
+              <input type="checkbox" id="shuffle-{css_id}" name="shuffle"{checked}
+                     form="edit-form-{css_id}">
+              <label for="shuffle-{css_id}">Play in shuffle mode</label>
+            </div>
+          </div>
+        </div>
+        <div class="edit-image-controls">
+          <label>Cover Art</label>
+          <div class="edit-image-row">
+            <form hx-post="{image_url}"
+                  hx-target="#thumb-{css_id}" hx-swap="outerHTML"
+                  class="edit-image-url-form">
+              <input type="text" name="image_url" placeholder="Image URL&hellip;">
+              <button type="submit" class="btn btn-save-url">Load from URL</button>
+            </form>
+            <form hx-post="{image_url}"
+                  hx-target="#thumb-{css_id}" hx-swap="outerHTML"
+                  hx-encoding="multipart/form-data">
+              <label class="btn btn-save-url" style="cursor:pointer;">
+                File&hellip;
+                <input type="file" name="image_file" accept="image/*" style="display:none"
+                       onchange="this.form.requestSubmit()">
+              </label>
+            </form>
+          </div>
+        </div>
+      </div>
+      <div class="card-edit-footer">
+        <div class="card-actions-edit">
+          <form id="edit-form-{css_id}"
+                hx-post="{edit_url}"
+                hx-target="#card-{css_id}"
+                hx-swap="outerHTML">
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          </form>
+          <button type="button" class="btn btn-save-url"
+                  hx-get="{card_url}"
+                  hx-target="#card-{css_id}"
+                  hx-swap="outerHTML">Cancel</button>
+          <form method="post" action="{delete_url}" style="display:inline"
+                onsubmit="return confirm('Delete this mapping?')">
+            <button type="submit" class="btn btn-delete">Delete mapping</button>
+          </form>
+        </div>
+      </div>
+    </div>"""
 
 
 def _parse_image_payload() -> tuple[str | None, str | None, int]:
