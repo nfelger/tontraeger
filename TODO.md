@@ -1,1 +1,4 @@
-- Add editing mappings feature
+- Allow mappings to be edited
+- Bulk add share links (newline separated), pull image and title from Spotify
+- Add "repeat" flag to tags
+- Some solution to overlay mapping names onto cover art - spotify cover art for playlists doesn't always reveal what the playlist is about, just shows four albums
