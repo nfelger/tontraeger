@@ -655,7 +655,7 @@ PAGE_TEMPLATE = """
         </div>
       </template>
       {% if has_image %}
-        <img class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
+        <img class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}{% if cache_bust %}?_={{ cache_bust }}{% endif %}" alt="artwork" loading="lazy">
       {% else %}
         <div class="card-thumb-placeholder" title="No artwork">&#9835;</div>
       {% endif %}
@@ -946,7 +946,8 @@ def print_tags() -> str:
 @app.route("/")
 def index() -> str:
     mappings = mapper.get_all_mappings()
-    return render_template_string(PAGE_TEMPLATE, mappings=mappings)
+    cache_bust = request.args.get("_", "")
+    return render_template_string(PAGE_TEMPLATE, mappings=mappings, cache_bust=cache_bust)
 
 
 @app.route("/now-playing")
