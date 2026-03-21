@@ -763,6 +763,20 @@ document.addEventListener('alpine:init', () => {
         tagUid,
         manualUrl: '',
 
+        refreshThumb() {
+            const src = '/mappings/' + encodeURIComponent(this.tagUid) + '/image?_=' + Date.now();
+            const card = this.$el;
+            const existing = card.querySelector('.card-thumb, .card-thumb-placeholder');
+            if (existing) {
+                const img = document.createElement('img');
+                img.className = 'card-thumb';
+                img.alt = 'artwork';
+                img.src = src;
+                existing.replaceWith(img);
+            }
+            this.manualUrl = '';
+        },
+
         async saveManualUrl() {
             const url = this.manualUrl.trim();
             if (!url) return;
@@ -773,7 +787,7 @@ document.addEventListener('alpine:init', () => {
                     body: JSON.stringify({ image_url: url })
                 });
                 if (resp.ok) {
-                    location.href = '/?_=' + Date.now();
+                    this.refreshThumb();
                 } else {
                     alert('Failed to save image');
                 }
@@ -795,7 +809,7 @@ document.addEventListener('alpine:init', () => {
                         body: JSON.stringify({ image_data: base64 })
                     });
                     if (resp.ok) {
-                        location.href = '/?_=' + Date.now();
+                        this.refreshThumb();
                     } else {
                         alert('Failed to upload image');
                     }
