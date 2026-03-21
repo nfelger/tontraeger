@@ -54,6 +54,7 @@ class UnknownTagInbox:
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
+app.jinja_env.filters["css_id"] = lambda s: s.replace(":", "-")
 
 mapper = TagMapper(DATABASE_PATH)
 unknown_tags = UnknownTagInbox()
@@ -657,9 +658,9 @@ PAGE_TEMPLATE = """
         </div>
       </template>
       {% if has_image %}
-        <img id="thumb-{{ tag_uid }}" class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
+        <img id="thumb-{{ tag_uid|css_id }}" class="card-thumb" src="{{ url_for('get_image', tag_uid=tag_uid) }}" alt="artwork" loading="lazy">
       {% else %}
-        <div id="thumb-{{ tag_uid }}" class="card-thumb-placeholder" title="No artwork">&#9835;</div>
+        <div id="thumb-{{ tag_uid|css_id }}" class="card-thumb-placeholder" title="No artwork">&#9835;</div>
       {% endif %}
       <div class="card-body">
         <div class="card-tag">{{ name if name else tag_uid }}{% if shuffle %} <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>{% endif %}</div>
@@ -674,14 +675,14 @@ PAGE_TEMPLATE = """
       </div>
       <div class="artwork-controls">
         <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
-              hx-target="#thumb-{{ tag_uid }}" hx-swap="outerHTML">
+              hx-target="#thumb-{{ tag_uid|css_id }}" hx-swap="outerHTML">
           <div class="form-field-url">
             <input type="text" name="image_url" placeholder="Image URL&hellip;">
           </div>
           <button type="submit" class="btn btn-save-url">Save</button>
         </form>
         <form hx-post="{{ url_for('set_image', tag_uid=tag_uid) }}"
-              hx-target="#thumb-{{ tag_uid }}" hx-swap="outerHTML"
+              hx-target="#thumb-{{ tag_uid|css_id }}" hx-swap="outerHTML"
               hx-encoding="multipart/form-data">
           <label class="btn btn-save-url" style="cursor:pointer;">
             File&hellip;
@@ -957,10 +958,10 @@ def delete_mapping(tag_uid: str) -> Response:
 
 def _thumb_html(tag_uid: str) -> str:
     """Return an <img> fragment for the given tag's artwork."""
-    safe_uid = escape(tag_uid)
+    css_id = escape(tag_uid.replace(":", "-"))
     src = url_for("get_image", tag_uid=tag_uid)
     return (
-        f'<img id="thumb-{safe_uid}" class="card-thumb"'
+        f'<img id="thumb-{css_id}" class="card-thumb"'
         f' src="{src}?v={int(time.time())}"'
         f' alt="artwork" loading="lazy">'
     )

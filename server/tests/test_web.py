@@ -357,11 +357,28 @@ def test_set_image_form_url(client: FlaskClient) -> None:
         resp = client.post("/mappings/furl1/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
     assert resp.status_code == 200
     assert b"<img" in resp.data
-    assert b'id="thumb-furl1"' in resp.data
+    assert b'id="thumb-furl1"' in resp.data  # no colons in test UID, so unchanged
 
     resp = client.get("/mappings/furl1/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
+
+
+def test_set_image_form_colon_uid_css_safe(client: FlaskClient) -> None:
+    """Tag UIDs with colons get CSS-safe IDs (colons replaced with hyphens)."""
+    import base64
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    client.post("/mappings", data={"tag_uid": "04:3d:24:82", "media_uri": "uri"})
+    with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
+        resp = client.post("/mappings/04:3d:24:82/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+    assert resp.status_code == 200
+    assert b'id="thumb-04-3d-24-82"' in resp.data
+
+    # Main page also uses CSS-safe IDs
+    resp = client.get("/")
+    assert b'id="thumb-04-3d-24-82"' in resp.data
+    assert b'hx-target="#thumb-04-3d-24-82"' in resp.data
 
 
 def test_set_image_form_file_upload(client: FlaskClient) -> None:
