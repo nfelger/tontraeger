@@ -558,6 +558,7 @@ def test_edit_form_get(client: FlaskClient) -> None:
     assert "Save" in html
     assert "Cancel" in html
     assert "Delete mapping" in html
+    assert 'hx-confirm="Delete this mapping?"' in html
 
 
 def test_edit_form_get_nonexistent(client: FlaskClient) -> None:

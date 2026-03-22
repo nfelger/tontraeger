@@ -1,4 +1,3 @@
-- Bug: 'cancel' on the mapping delete confirmation still deletes the mapping
 - Review existing Alpine.js usage and migrate to pure htmx where possible (see CLAUDE.md UI Principles)
 - Bulk add share links (newline separated), pull image and title from Spotify (in fact: always pull the tag name from the spotify title if not already filled in. for playlists, take title, for albums take artist+album title)
 - Add "repeat" flag to tags

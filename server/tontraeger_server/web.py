@@ -1262,7 +1262,7 @@ def _card_edit_html(
                   hx-target="#card-{css_id}"
                   hx-swap="outerHTML">Cancel</button>
           <form method="post" action="{delete_url}" style="display:inline"
-                onsubmit="return confirm('Delete this mapping?')">
+                hx-confirm="Delete this mapping?">
             <button type="submit" class="btn btn-delete">Delete mapping</button>
           </form>
         </div>
