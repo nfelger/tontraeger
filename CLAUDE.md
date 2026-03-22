@@ -26,7 +26,7 @@ Every commit must pass `make check` and include tests for new functionality.
 
 The critical path (place card, play music) has **no server dependency**. The client cache allows playback to keep working when the server is down or unreachable. Do not introduce server dependencies on the playback path.
 
-Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/unknown-tags`). Changes to the API response shape require coordinated updates in both components — the client parses the server's JSON directly in `sync.py` and `cache.py`.
+Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/unknown-tags`, `POST /api/media-metadata`). Changes to the API response shape require coordinated updates in both components — the client parses the server's JSON directly in `sync.py` and `cache.py`.
 
 - Spotify share links (`https://`) go through SoCo's `ShareLinkPlugin`; all other URIs use `add_uri_to_queue`.
 

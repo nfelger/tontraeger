@@ -5,6 +5,7 @@ import secrets
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
+from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
@@ -78,18 +79,24 @@ def fetch_image_as_base64(url: str) -> str | None:
         return None
 
 
-def fetch_spotify_artwork(spotify_url: str) -> str | None:
-    """Fetches artwork for a Spotify URL via the public oEmbed endpoint."""
+def fetch_spotify_oembed(spotify_url: str) -> dict[str, Any] | None:
+    """Fetches oEmbed metadata for a Spotify URL (title, thumbnail, etc.)."""
     oembed_url = f"https://open.spotify.com/oembed?url={quote(spotify_url, safe='')}"
     try:
         req = Request(oembed_url, headers={"User-Agent": "tontraeger/1.0"})
         with urlopen(req, timeout=10) as resp:  # noqa: S310
-            data = json.loads(resp.read())
-            thumbnail_url = data.get("thumbnail_url")
-            if thumbnail_url:
-                return fetch_image_as_base64(thumbnail_url)
+            return json.loads(resp.read(16384))
     except (URLError, OSError, ValueError, KeyError):
-        pass
+        return None
+
+
+def fetch_spotify_artwork(spotify_url: str) -> str | None:
+    """Fetches artwork for a Spotify URL via the public oEmbed endpoint."""
+    data = fetch_spotify_oembed(spotify_url)
+    if data:
+        thumbnail_url = data.get("thumbnail_url")
+        if thumbnail_url:
+            return fetch_image_as_base64(thumbnail_url)
     return None
 
 
@@ -732,7 +739,7 @@ PAGE_TEMPLATE = """
         <div class="form-row">
           <div class="form-field">
             <label for="name">Name</label>
-            <input type="text" id="name" name="name" placeholder="e.g. Kids playlist">
+            <input type="text" id="name" name="name" x-ref="name" @input="nameAutoFilled = false" placeholder="e.g. Kids playlist">
           </div>
           <div class="form-field">
             <label for="tag_uid">Tag UID</label>
@@ -740,7 +747,7 @@ PAGE_TEMPLATE = """
           </div>
           <div class="form-field">
             <label for="media_uri">Media URI</label>
-            <input type="text" id="media_uri" name="media_uri" x-ref="mediaUri" placeholder="Spotify link, Sonos URI, or STOP" required>
+            <input type="text" id="media_uri" name="media_uri" x-ref="mediaUri" @input="debouncedFetchMetadata()" placeholder="Spotify link, Sonos URI, or STOP" required>
           </div>
           <div class="form-field form-field-checkbox">
             <label><input type="checkbox" name="shuffle"> Shuffle</label>
@@ -820,6 +827,34 @@ document.addEventListener('alpine:init', () => {
         set selectedSpeaker(v) { Alpine.store('speaker').selected = v; },
         npLoading: false,
         npButtonText: 'Now Playing',
+        nameAutoFilled: false,
+        _metadataTimer: null,
+
+        debouncedFetchMetadata() {
+            clearTimeout(this._metadataTimer);
+            this._metadataTimer = setTimeout(() => {
+                this.fetchMetadata(this.$refs.mediaUri.value);
+            }, 400);
+        },
+
+        async fetchMetadata(url) {
+            if (!url) return;
+            if (this.$refs.name.value && !this.nameAutoFilled) return;
+            try {
+                const resp = await fetch('/api/media-metadata', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                });
+                const data = await resp.json();
+                if (data.title && (!this.$refs.name.value || this.nameAutoFilled)) {
+                    this.$refs.name.value = data.title;
+                    this.nameAutoFilled = true;
+                }
+            } catch (e) {
+                // silently ignore — name field stays as-is
+            }
+        },
 
         async fetchNowPlaying() {
             if (!this.selectedSpeaker) return;
@@ -831,6 +866,7 @@ document.addEventListener('alpine:init', () => {
                 if (data.uri) {
                     this.$refs.mediaUri.value = data.uri;
                     this.$refs.mediaUri.focus();
+                    this.fetchMetadata(data.uri);
                     this.npButtonText = 'Now Playing';
                 } else {
                     this.npButtonText = 'Nothing playing';
@@ -1000,6 +1036,19 @@ def now_playing() -> Response:
     except Exception:
         info = {"uri": None}
     return jsonify(uri=info.get("uri"))
+
+
+@app.route("/api/media-metadata", methods=["POST"])
+def media_metadata() -> Response:
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "")
+    if not url.startswith(("http://", "https://")):
+        return jsonify(title=None)
+    if url.startswith("https://open.spotify.com/"):
+        oembed = fetch_spotify_oembed(url)
+        if oembed:
+            return jsonify(title=oembed.get("title"))
+    return jsonify(title=None)
 
 
 @app.route("/api/speakers")

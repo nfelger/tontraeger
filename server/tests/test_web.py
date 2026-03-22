@@ -605,6 +605,61 @@ def test_add_mapping_non_spotify_no_auto_fetch(client: FlaskClient) -> None:
         mock_fetch.assert_not_called()
 
 
+# ── Media metadata ────────────────────────────────────
+
+
+def test_media_metadata_spotify_url_returns_title(client: FlaskClient) -> None:
+    oembed_response = {"title": "Beatles - Abbey Road", "thumbnail_url": "https://example.com/img.jpg"}
+    with patch("tontraeger_server.web.fetch_spotify_oembed", return_value=oembed_response):
+        resp = client.post("/api/media-metadata", json={"url": "https://open.spotify.com/album/abc123"})
+    assert resp.status_code == 200
+    assert resp.json["title"] == "Beatles - Abbey Road"
+
+
+def test_media_metadata_non_spotify_url_returns_null(client: FlaskClient) -> None:
+    resp = client.post("/api/media-metadata", json={"url": "https://example.com/something"})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_non_url_returns_null(client: FlaskClient) -> None:
+    resp = client.post("/api/media-metadata", json={"url": "x-sonosapi-radio:s25111"})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_stop_returns_null(client: FlaskClient) -> None:
+    resp = client.post("/api/media-metadata", json={"url": "STOP"})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_empty_url_returns_null(client: FlaskClient) -> None:
+    resp = client.post("/api/media-metadata", json={"url": ""})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_no_body_returns_null(client: FlaskClient) -> None:
+    resp = client.post("/api/media-metadata", content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_oembed_failure_returns_null(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_spotify_oembed", return_value=None):
+        resp = client.post("/api/media-metadata", json={"url": "https://open.spotify.com/album/abc123"})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
+def test_media_metadata_oembed_missing_title_returns_null(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.fetch_spotify_oembed", return_value={}):
+        resp = client.post("/api/media-metadata", json={"url": "https://open.spotify.com/album/abc123"})
+    assert resp.status_code == 200
+    assert resp.json["title"] is None
+
+
 # ── Edit mappings ─────────────────────────────────────
 
 
