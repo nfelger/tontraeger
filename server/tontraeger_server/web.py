@@ -1102,7 +1102,8 @@ def edit_mapping(tag_uid: str) -> Response | tuple[Response, int]:
     mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
     if _wants_html():
         updated = mapper.get_mapping(tag_uid)
-        assert updated is not None
+        if not updated:
+            return Response("mapping not found after save", status=500)
         return Response(_card_view_html(*updated))
     return redirect(url_for("index"))
 
@@ -1125,24 +1126,27 @@ def _thumb_html(tag_uid: str) -> str:
     )
 
 
+def _card_thumb_html(tag_uid: str, css_id: str, has_image: bool) -> str:
+    """Return a thumbnail element for a card (img or placeholder)."""
+    if has_image:
+        return (
+            f'<img id="thumb-{css_id}" class="card-thumb"'
+            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
+        )
+    return (
+        f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
+        f' title="No artwork">&#9835;</div>'
+    )
+
+
 def _card_view_html(tag_uid: str, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
     """Return a view-mode card HTML fragment for the given mapping."""
     css_id = escape(tag_uid.replace(":", "-"))
     e_tag_uid = escape(tag_uid)
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-    tag_uid_json = json.dumps(tag_uid)
-
-    if has_image:
-        thumb = (
-            f'<img id="thumb-{css_id}" class="card-thumb"'
-            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
-        )
-    else:
-        thumb = (
-            f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
-            f' title="No artwork">&#9835;</div>'
-        )
+    tag_uid_json = escape(json.dumps(tag_uid))
+    thumb = _card_thumb_html(tag_uid, css_id, has_image)
 
     display_name = e_name if name else e_tag_uid
     shuffle_badge = ' <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>' if shuffle else ""
@@ -1186,17 +1190,7 @@ def _card_edit_html(
     e_tag_uid = escape(tag_uid)
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-
-    if has_image:
-        thumb = (
-            f'<img id="thumb-{css_id}" class="card-thumb"'
-            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
-        )
-    else:
-        thumb = (
-            f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
-            f' title="No artwork">&#9835;</div>'
-        )
+    thumb = _card_thumb_html(tag_uid, css_id, has_image)
 
     edit_url = url_for("edit_mapping", tag_uid=tag_uid)
     card_url = url_for("card_view", tag_uid=tag_uid)
