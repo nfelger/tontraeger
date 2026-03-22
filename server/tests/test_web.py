@@ -137,6 +137,70 @@ def test_api_post_unknown_tag_no_json(client: FlaskClient) -> None:
     assert resp.status_code == 400
 
 
+# ── Fragment endpoints ──────────────────────────────────
+
+
+def test_fragment_unknown_tags_empty(client: FlaskClient) -> None:
+    resp = client.get("/fragments/unknown-tags")
+    assert resp.status_code == 200
+    assert resp.data == b""
+
+
+def test_fragment_unknown_tags_with_tags(client: FlaskClient) -> None:
+    client.post("/api/unknown-tags", json={"tag_uid": "AA:BB:CC"})
+    resp = client.get("/fragments/unknown-tags")
+    assert resp.status_code == 200
+    assert b"AA:BB:CC" in resp.data
+    assert b"Scanned 1 time" in resp.data
+    assert b"Use" in resp.data
+
+
+def test_fragment_unknown_tags_plural(client: FlaskClient) -> None:
+    client.post("/api/unknown-tags", json={"tag_uid": "AA:BB:CC"})
+    client.post("/api/unknown-tags", json={"tag_uid": "AA:BB:CC"})
+    resp = client.get("/fragments/unknown-tags")
+    assert b"Scanned 2 times" in resp.data
+
+
+def test_fragment_speaker_options(client: FlaskClient) -> None:
+    mock_speaker1 = MagicMock()
+    mock_speaker1.player_name = "Kitchen"
+    mock_speaker2 = MagicMock()
+    mock_speaker2.player_name = "Bedroom"
+
+    with patch("tontraeger_server.web.soco.discover", return_value=[mock_speaker1, mock_speaker2]):
+        resp = client.get("/fragments/speaker-options")
+        assert resp.status_code == 200
+        assert b"Kitchen" in resp.data
+        assert b"Bedroom" in resp.data
+        assert b"selected" not in resp.data
+
+
+def test_fragment_speaker_options_single_auto_selects(client: FlaskClient) -> None:
+    mock_speaker = MagicMock()
+    mock_speaker.player_name = "Kitchen"
+
+    with patch("tontraeger_server.web.soco.discover", return_value=[mock_speaker]):
+        resp = client.get("/fragments/speaker-options")
+        assert resp.status_code == 200
+        assert b"selected" in resp.data
+        assert b"Kitchen" in resp.data
+
+
+def test_fragment_speaker_options_none_found(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.soco.discover", return_value=None):
+        resp = client.get("/fragments/speaker-options")
+        assert resp.status_code == 200
+        assert resp.data == b""
+
+
+def test_fragment_speaker_options_discovery_error(client: FlaskClient) -> None:
+    with patch("tontraeger_server.web.soco.discover", side_effect=Exception("network error")):
+        resp = client.get("/fragments/speaker-options")
+        assert resp.status_code == 200
+        assert resp.data == b""
+
+
 def test_api_mappings_empty(client: FlaskClient) -> None:
     resp = client.get("/api/mappings")
     assert resp.status_code == 200
@@ -238,13 +302,12 @@ def test_template_alpine_and_htmx_wired(client: FlaskClient) -> None:
     # Input refs
     assert 'x-ref="mediaUri"' in html
     assert 'x-ref="tagUid"' in html
-    # Speaker picker
+    # Speaker picker (htmx-loaded options, Alpine for model binding)
     assert 'x-model="selectedSpeaker"' in html
-    # Unknown tags section
-    assert "loadUnknownTags" in html
-    assert "useTag" in html
-    assert "/api/unknown-tags" in html
-    assert "/api/speakers" in html
+    assert "/fragments/speaker-options" in html
+    # Unknown tags section (htmx polling)
+    assert "/fragments/unknown-tags" in html
+    assert 'hx-trigger="load, every 5s"' in html
 
 
 def test_api_speakers(client: FlaskClient) -> None:

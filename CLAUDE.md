@@ -32,4 +32,5 @@ Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/un
 
 ## UI Principles
 
-- **Prefer pure htmx over Alpine.js.** Use htmx (server-rendered HTML fragments + swaps) for all UI interactions where possible. Only resort to Alpine.js for features that genuinely require client-side state and cannot be achieved with htmx alone (e.g., real-time polling, complex client-side filtering).
+- **Prefer htmx for server-driven interactions** (data fetching, rendering lists, polling, state transitions). Use htmx server-rendered HTML fragments + swaps as the default for all UI interactions.
+- **Use Alpine.js where it's genuinely simpler** than htmx — e.g., client-side DOM manipulation (setting input values), UI mode toggles, multi-state buttons, or reactive state that doesn't need a server round-trip. Alpine.js is a complement to htmx, not a last resort.

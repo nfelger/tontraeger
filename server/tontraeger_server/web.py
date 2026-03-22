@@ -437,9 +437,6 @@ PAGE_TEMPLATE = """
     margin-bottom: 2.5rem;
   }
 
-  [x-cloak] {
-    display: none !important;
-  }
 
   /* ── Footer ──────────────────────────────── */
   footer {
@@ -727,7 +724,7 @@ PAGE_TEMPLATE = """
     {% endfor %}
   {% endwith %}
 
-  <div x-data="formHelper()" x-init="loadSpeakers(); loadUnknownTags(); setInterval(() => loadUnknownTags(), 5000)">
+  <div x-data="formHelper()">
 
     <div class="add-form">
       <h2>New Mapping</h2>
@@ -754,11 +751,11 @@ PAGE_TEMPLATE = """
       <div style="display:flex; align-items:flex-end; gap:0.5rem; margin-top:0.75rem;">
         <div class="form-field" style="flex:0 1 auto; min-width:140px;">
           <label for="speaker">Speaker</label>
-          <select id="speaker" x-model="selectedSpeaker">
+          <select id="speaker" x-model="selectedSpeaker"
+                  hx-get="/fragments/speaker-options"
+                  hx-trigger="load"
+                  hx-swap="beforeend">
             <option value="">Select speaker&hellip;</option>
-            <template x-for="name in speakers" :key="name">
-              <option :value="name" x-text="name"></option>
-            </template>
           </select>
         </div>
         <button type="button" class="btn btn-now-playing"
@@ -771,23 +768,11 @@ PAGE_TEMPLATE = """
       </div>
     </div>
 
-    <div x-show="unknownTags.length > 0" x-cloak class="unknown-tags">
-      <div class="section-head">
-        <h2>Recently Scanned</h2>
-        <span class="badge" x-text="unknownTags.length"></span>
-      </div>
-      <template x-for="tag in unknownTags" :key="tag.tag_uid">
-        <div class="card">
-          <div class="card-groove"></div>
-          <div class="card-body">
-            <div class="card-tag" x-text="tag.tag_uid"></div>
-            <div class="card-uri" x-text="'Scanned ' + tag.scan_count + (tag.scan_count === 1 ? ' time' : ' times')"></div>
-          </div>
-          <div class="card-actions">
-            <button type="button" class="btn btn-now-playing" @click="useTag(tag.tag_uid)">Use</button>
-          </div>
-        </div>
-      </template>
+    <div id="unknown-tags-container"
+         hx-get="/fragments/unknown-tags"
+         hx-trigger="load, every 5s"
+         hx-swap="innerHTML"
+         class="unknown-tags">
     </div>
 
   </div>
@@ -831,21 +816,10 @@ document.addEventListener('alpine:init', () => {
     Alpine.store('printMode', { active: false, selected: new Set() });
 
     Alpine.data('formHelper', () => ({
-        speakers: [],
         get selectedSpeaker() { return Alpine.store('speaker').selected; },
         set selectedSpeaker(v) { Alpine.store('speaker').selected = v; },
         npLoading: false,
         npButtonText: 'Now Playing',
-        unknownTags: [],
-
-        async loadSpeakers() {
-            try {
-                const resp = await fetch('/api/speakers');
-                const data = await resp.json();
-                this.speakers = data.speakers || [];
-                if (this.speakers.length === 1) this.selectedSpeaker = this.speakers[0];
-            } catch (e) { /* speakers unavailable */ }
-        },
 
         async fetchNowPlaying() {
             if (!this.selectedSpeaker) return;
@@ -868,19 +842,6 @@ document.addEventListener('alpine:init', () => {
             } finally {
                 this.npLoading = false;
             }
-        },
-
-        async loadUnknownTags() {
-            try {
-                const resp = await fetch('/api/unknown-tags');
-                const data = await resp.json();
-                this.unknownTags = data.tags || [];
-            } catch (e) { /* retry next poll */ }
-        },
-
-        useTag(uid) {
-            this.$refs.tagUid.value = uid;
-            this.$refs.tagUid.focus();
         }
     }));
 
@@ -1113,6 +1074,55 @@ def delete_mapping(tag_uid: str) -> Response:
     mapper.delete_mapping(tag_uid)
     flash(f"Mapping removed for tag {tag_uid}")
     return redirect(url_for("index"))
+
+
+def _unknown_tags_html() -> str:
+    """Return an HTML fragment for the unknown-tags section (or empty string)."""
+    tags = unknown_tags.get_all()
+    if not tags:
+        return ""
+    cards = []
+    for tag in tags:
+        uid = escape(tag["tag_uid"])
+        count = tag["scan_count"]
+        plural = "time" if count == 1 else "times"
+        cards.append(
+            f'<div class="card">'
+            f'<div class="card-groove"></div>'
+            f'<div class="card-body">'
+            f'<div class="card-tag">{uid}</div>'
+            f'<div class="card-uri">Scanned {count} {plural}</div>'
+            f"</div>"
+            f'<div class="card-actions">'
+            f"<button type=\"button\" class=\"btn btn-now-playing\""
+            f" @click=\"$refs.tagUid.value = '{uid}'; $refs.tagUid.focus()\">Use</button>"
+            f"</div>"
+            f"</div>"
+        )
+    badge = len(tags)
+    return (
+        f'<div class="section-head">'
+        f"<h2>Recently Scanned</h2>"
+        f'<span class="badge">{badge}</span>'
+        f"</div>"
+        + "".join(cards)
+    )
+
+
+def _speaker_options_html() -> str:
+    """Return <option> elements for discovered Sonos speakers."""
+    try:
+        speakers = soco.discover(timeout=5)
+        if not speakers:
+            return ""
+        names = sorted(s.player_name for s in speakers)
+        options = []
+        for name in names:
+            selected = " selected" if len(names) == 1 else ""
+            options.append(f'<option value="{escape(name)}"{selected}>{escape(name)}</option>')
+        return "\n".join(options)
+    except Exception:
+        return ""
 
 
 def _thumb_html(tag_uid: str) -> str:
@@ -1364,6 +1374,16 @@ def api_post_unknown_tag() -> Response | tuple[Response, int]:
 @app.route("/api/unknown-tags", methods=["GET"])
 def api_get_unknown_tags() -> Response:
     return jsonify(tags=unknown_tags.get_all())
+
+
+@app.route("/fragments/unknown-tags")
+def fragment_unknown_tags() -> Response:
+    return Response(_unknown_tags_html())
+
+
+@app.route("/fragments/speaker-options")
+def fragment_speaker_options() -> Response:
+    return Response(_speaker_options_html())
 
 
 @app.route("/api/mappings")
