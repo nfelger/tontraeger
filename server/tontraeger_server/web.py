@@ -1094,16 +1094,15 @@ def _unknown_tags_html() -> str:
             f'<div class="card-uri">Scanned {count} {plural}</div>'
             f"</div>"
             f'<div class="card-actions">'
-            f"<button type=\"button\" class=\"btn btn-now-playing\""
-            f" @click=\"$refs.tagUid.value = '{uid}'; $refs.tagUid.focus()\">Use</button>"
+            f'<button type="button" class="btn btn-now-playing" data-tag-uid="{uid}"'
+            f' @click="$refs.tagUid.value = $el.dataset.tagUid; $refs.tagUid.focus()">Use</button>'
             f"</div>"
             f"</div>"
         )
-    badge = len(tags)
     return (
         f'<div class="section-head">'
         f"<h2>Recently Scanned</h2>"
-        f'<span class="badge">{badge}</span>'
+        f'<span class="badge">{len(tags)}</span>'
         f"</div>"
         + "".join(cards)
     )
@@ -1378,12 +1377,12 @@ def api_get_unknown_tags() -> Response:
 
 @app.route("/fragments/unknown-tags")
 def fragment_unknown_tags() -> Response:
-    return Response(_unknown_tags_html())
+    return Response(_unknown_tags_html(), content_type="text/html")
 
 
 @app.route("/fragments/speaker-options")
 def fragment_speaker_options() -> Response:
-    return Response(_speaker_options_html())
+    return Response(_speaker_options_html(), content_type="text/html")
 
 
 @app.route("/api/mappings")
