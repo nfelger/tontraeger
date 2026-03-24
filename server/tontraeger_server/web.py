@@ -52,8 +52,13 @@ class UnknownTagInbox:
 
     def get_since(self, since_iso: str) -> dict | None:
         """Return the most recently seen unknown tag after since_iso, or None."""
+        # Normalize Z suffix to +00:00 so string comparison works correctly.
+        # JS sends "2026-03-24T10:30:00.123Z" but server timestamps use "+00:00".
+        # Without normalization, "123456+00:00" < "123Z" ('+' < 'Z'), causing
+        # false negatives for tags scanned within the same millisecond as since.
+        since_normalized = since_iso.replace("Z", "+00:00")
         for entry in reversed(list(self._tags.values())):
-            if entry["last_seen"] > since_iso:
+            if entry["last_seen"] > since_normalized:
                 return entry
         return None
 
@@ -1000,7 +1005,7 @@ PRINT_TEMPLATE = """
     <div class="grid">
       {% for mid in page_cards %}
       <div class="cell">
-        <img src="{{ url_for('get_image', id=mid) }}" alt="artwork">
+        <img src="{{ url_for('get_image', mapping_id=mid) }}" alt="artwork">
         <div class="card-outline"></div>
       </div>
       {% endfor %}
@@ -1086,30 +1091,30 @@ def add_mapping() -> Response:
     return redirect(url_for("index"))
 
 
-@app.route("/mappings/<int:id>/edit-form")
-def edit_form(id: int) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(id)
+@app.route("/mappings/<int:mapping_id>/edit-form")
+def edit_form(mapping_id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(mapping_id)
     if not mapping:
         return Response("mapping not found", status=404)
     return Response(_card_edit_html(*mapping))
 
 
-@app.route("/mappings/<int:id>/card")
-def card_view(id: int) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(id)
+@app.route("/mappings/<int:mapping_id>/card")
+def card_view(mapping_id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(mapping_id)
     if not mapping:
         return Response("mapping not found", status=404)
     return Response(_card_view_html(*mapping))
 
 
-@app.route("/mappings/<int:id>/edit", methods=["POST"])
-def edit_mapping(id: int) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(id)
+@app.route("/mappings/<int:mapping_id>/edit", methods=["POST"])
+def edit_mapping(mapping_id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(mapping_id)
     if not mapping:
         if _wants_html():
             return Response("mapping not found", status=404)
         return jsonify(error="mapping not found"), 404
-    id_, _, _, old_name, old_shuffle, has_image = mapping
+    id_, old_name, old_shuffle, has_image = mapping.id, mapping.name, mapping.shuffle, mapping.has_image
     media_uri = request.form.get("media_uri", "").strip()
     name = request.form.get("name", "").strip()
     shuffle = request.form.get("shuffle") == "on"
@@ -1133,9 +1138,9 @@ def edit_mapping(id: int) -> Response | tuple[Response, int]:
     return redirect(url_for("index"))
 
 
-@app.route("/mappings/<int:id>/delete", methods=["POST"])
-def delete_mapping(id: int) -> Response:
-    mapper.delete_mapping(id)
+@app.route("/mappings/<int:mapping_id>/delete", methods=["POST"])
+def delete_mapping(mapping_id: int) -> Response:
+    mapper.delete_mapping(mapping_id)
     flash("Mapping removed")
     return redirect(url_for("index"))
 
@@ -1188,35 +1193,35 @@ def _speaker_options_html() -> str:
         return ""
 
 
-def _thumb_html(id: int) -> str:
+def _thumb_html(mapping_id: int) -> str:
     """Return an <img> fragment for the given mapping's artwork."""
-    src = url_for("get_image", id=id)
+    src = url_for("get_image", mapping_id=mapping_id)
     return (
-        f'<img id="thumb-{id}" class="card-thumb"'
+        f'<img id="thumb-{mapping_id}" class="card-thumb"'
         f' src="{src}?v={int(time.time())}"'
         f' alt="artwork" loading="lazy">'
     )
 
 
-def _card_thumb_html(id: int, has_image: bool) -> str:
+def _card_thumb_html(mapping_id: int, has_image: bool) -> str:
     """Return a thumbnail element for a card (img or placeholder)."""
     if has_image:
         return (
-            f'<img id="thumb-{id}" class="card-thumb"'
-            f' src="{url_for("get_image", id=id)}" alt="artwork" loading="lazy">'
+            f'<img id="thumb-{mapping_id}" class="card-thumb"'
+            f' src="{url_for("get_image", mapping_id=mapping_id)}" alt="artwork" loading="lazy">'
         )
     return (
-        f'<div id="thumb-{id}" class="card-thumb-placeholder"'
+        f'<div id="thumb-{mapping_id}" class="card-thumb-placeholder"'
         f' title="No artwork">&#9835;</div>'
     )
 
 
-def _card_view_html(id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
+def _card_view_html(mapping_id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
     """Return a view-mode card HTML fragment for the given mapping."""
     e_tag_uid = escape(tag_uid) if tag_uid else ""
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-    thumb = _card_thumb_html(id, has_image)
+    thumb = _card_thumb_html(mapping_id, has_image)
 
     display_name = e_name if name else (e_tag_uid if tag_uid else "Unnamed")
     shuffle_badge = ' <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>' if shuffle else ""
@@ -1233,14 +1238,14 @@ def _card_view_html(id: int, tag_uid: str | None, media_uri: str, name: str, shu
     else:
         uri_line = f'<div class="card-uri" title="{e_media_uri}">{e_media_uri}</div>'
 
-    edit_url = url_for("edit_form", id=id)
+    edit_url = url_for("edit_form", mapping_id=mapping_id)
 
-    return f"""<div class="card" id="card-{id}" x-data>
+    return f"""<div class="card" id="card-{mapping_id}" x-data>
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
                  {"disabled " + 'title="Capture artwork first"' if not has_image else ""}
-                 @change='($event.target.checked ? $store.printMode.selected.add({id}) : $store.printMode.selected.delete({id}))'>
+                 @change='($event.target.checked ? $store.printMode.selected.add({mapping_id}) : $store.printMode.selected.delete({mapping_id}))'>
         </div>
       </template>
       {thumb}
@@ -1252,30 +1257,30 @@ def _card_view_html(id: int, tag_uid: str | None, media_uri: str, name: str, shu
       <div class="card-actions" x-show="!$store.printMode.active">
         <button type="button" class="btn btn-edit"
                 hx-get="{edit_url}"
-                hx-target="#card-{id}"
+                hx-target="#card-{mapping_id}"
                 hx-swap="outerHTML">Edit</button>
       </div>
     </div>"""
 
 
 def _card_edit_html(
-    id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool, error: str | None = None
+    mapping_id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool, error: str | None = None
 ) -> str:
     """Return an edit-mode card HTML fragment for the given mapping."""
     e_tag_uid = escape(tag_uid or "")
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-    thumb = _card_thumb_html(id, has_image)
+    thumb = _card_thumb_html(mapping_id, has_image)
 
-    edit_url = url_for("edit_mapping", id=id)
-    card_url = url_for("card_view", id=id)
-    delete_url = url_for("delete_mapping", id=id)
-    image_url = url_for("set_image", id=id)
+    edit_url = url_for("edit_mapping", mapping_id=mapping_id)
+    card_url = url_for("card_view", mapping_id=mapping_id)
+    delete_url = url_for("delete_mapping", mapping_id=mapping_id)
+    image_url = url_for("set_image", mapping_id=mapping_id)
 
     checked = " checked" if shuffle else ""
     error_html = f'<div class="edit-error">{escape(error)}</div>' if error else ""
 
-    return f"""<div class="card card-editing" id="card-{id}">
+    return f"""<div class="card card-editing" id="card-{mapping_id}">
       {thumb}
       <div class="card-body">
         {error_html}
@@ -1283,7 +1288,7 @@ def _card_edit_html(
           <div class="form-field">
             <label>Name</label>
             <input type="text" name="name" value="{e_name}" placeholder="e.g. Kids playlist"
-                   form="edit-form-{id}">
+                   form="edit-form-{mapping_id}">
           </div>
           <div class="form-field"
                x-data="{{ waiting: false, since: '' }}"
@@ -1291,7 +1296,7 @@ def _card_edit_html(
             <label>Tag UID</label>
             <div style="display:flex; gap:0.4rem; align-items:center;">
               <input type="text" name="tag_uid" value="{e_tag_uid}" placeholder="e.g. 04:ab:cd:..."
-                     x-ref="tagUidInput" form="edit-form-{id}">
+                     x-ref="tagUidInput" form="edit-form-{mapping_id}">
               <button type="button" class="btn btn-save-url" x-show="!waiting"
                       @click="waiting = true; since = new Date().toISOString()">Assign tag</button>
               <template x-if="waiting">
@@ -1310,14 +1315,14 @@ def _card_edit_html(
           <div class="form-field">
             <label>Media URI</label>
             <input type="text" name="media_uri" value="{e_media_uri}" placeholder="Spotify link, Sonos URI, or STOP" required
-                   form="edit-form-{id}">
+                   form="edit-form-{mapping_id}">
           </div>
           <div class="form-field">
             <label>Shuffle</label>
             <div class="edit-checkbox-wrap">
-              <input type="checkbox" id="shuffle-{id}" name="shuffle"{checked}
-                     form="edit-form-{id}">
-              <label for="shuffle-{id}">Play in shuffle mode</label>
+              <input type="checkbox" id="shuffle-{mapping_id}" name="shuffle"{checked}
+                     form="edit-form-{mapping_id}">
+              <label for="shuffle-{mapping_id}">Play in shuffle mode</label>
             </div>
           </div>
         </div>
@@ -1325,13 +1330,13 @@ def _card_edit_html(
           <label>Cover Art</label>
           <div class="edit-image-row">
             <form hx-post="{image_url}"
-                  hx-target="#thumb-{id}" hx-swap="outerHTML"
+                  hx-target="#thumb-{mapping_id}" hx-swap="outerHTML"
                   class="edit-image-url-form">
               <input type="text" name="image_url" placeholder="Image URL&hellip;">
               <button type="submit" class="btn btn-save-url">Load from URL</button>
             </form>
             <form hx-post="{image_url}"
-                  hx-target="#thumb-{id}" hx-swap="outerHTML"
+                  hx-target="#thumb-{mapping_id}" hx-swap="outerHTML"
                   hx-encoding="multipart/form-data">
               <label class="btn btn-save-url" style="cursor:pointer;">
                 File&hellip;
@@ -1344,15 +1349,15 @@ def _card_edit_html(
       </div>
       <div class="card-edit-footer">
         <div class="card-actions-edit">
-          <form id="edit-form-{id}"
+          <form id="edit-form-{mapping_id}"
                 hx-post="{edit_url}"
-                hx-target="#card-{id}"
+                hx-target="#card-{mapping_id}"
                 hx-swap="outerHTML">
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
           </form>
           <button type="button" class="btn btn-save-url"
                   hx-get="{card_url}"
-                  hx-target="#card-{id}"
+                  hx-target="#card-{mapping_id}"
                   hx-swap="outerHTML">Cancel</button>
           <form method="post" action="{delete_url}" style="display:inline"
                 hx-confirm="Delete this mapping?">
@@ -1411,26 +1416,26 @@ def _wants_html() -> bool:
     return "HX-Request" in request.headers
 
 
-@app.route("/mappings/<int:id>/image", methods=["POST"])
-def set_image(id: int) -> Response | tuple[Response, int]:
+@app.route("/mappings/<int:mapping_id>/image", methods=["POST"])
+def set_image(mapping_id: int) -> Response | tuple[Response, int]:
     image_data, error, status = _parse_image_payload()
     if error:
         if _wants_html():
             return Response(f"<span>{escape(error)}</span>", status=status)
         return jsonify(error=error), status
     assert image_data is not None
-    if not mapper.upsert_image(id, image_data):
+    if not mapper.upsert_image(mapping_id, image_data):
         if _wants_html():
             return Response("<span>mapping not found</span>", status=404)
         return jsonify(error="mapping not found"), 404
     if _wants_html():
-        return Response(_thumb_html(id))
+        return Response(_thumb_html(mapping_id))
     return jsonify(ok=True)
 
 
-@app.route("/mappings/<int:id>/image", methods=["GET"])
-def get_image(id: int) -> Response | tuple[Response, int]:
-    rows = mapper.get_mappings_with_images([id])
+@app.route("/mappings/<int:mapping_id>/image", methods=["GET"])
+def get_image(mapping_id: int) -> Response | tuple[Response, int]:
+    rows = mapper.get_mappings_with_images([mapping_id])
     if not rows:
         return jsonify(error="no image"), 404
     image_data = rows[0][1]
@@ -1472,14 +1477,14 @@ def fragment_speaker_options() -> Response:
 @app.route("/api/mappings")
 def api_mappings() -> Response:
     all_mappings = mapper.get_all_mappings()
-    assigned = [m for m in all_mappings if m[1] is not None]
+    assigned = [m for m in all_mappings if m.tag_uid is not None]
     etag = mapper.compute_hash(assigned)
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
     resp = jsonify(
         mappings=[
-            {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s, "has_image": hi}
-            for _id, t, u, n, s, hi in assigned
+            {"tag_uid": m.tag_uid, "media_uri": m.media_uri, "name": m.name, "shuffle": m.shuffle, "has_image": m.has_image}
+            for m in assigned
         ]
     )
     resp.headers["ETag"] = etag

@@ -1,8 +1,18 @@
 import hashlib
 import json
 import sqlite3
+from typing import NamedTuple
 
 DATABASE_FILE = "tags.db"
+
+
+class Mapping(NamedTuple):
+    id: int
+    tag_uid: str | None
+    media_uri: str
+    name: str
+    shuffle: bool
+    has_image: bool
 
 
 class TagMapper:
@@ -12,20 +22,23 @@ class TagMapper:
 
     def _init_db(self) -> None:
         """Initializes the database schema, running migrations as needed."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, isolation_level=None)  # autocommit mode
         try:
             cursor = conn.cursor()
 
             # ADD COLUMN guards for old databases that predate those columns.
-            # Run before migration so the recreation copies all columns correctly.
-            try:
-                cursor.execute("ALTER TABLE tags ADD COLUMN shuffle INTEGER NOT NULL DEFAULT 0")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                cursor.execute("ALTER TABLE tags ADD COLUMN image_data TEXT NOT NULL DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass
+            # Only run if the table already exists; run before migration so the
+            # recreation copies all columns correctly.
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'")
+            if cursor.fetchone():
+                try:
+                    cursor.execute("ALTER TABLE tags ADD COLUMN shuffle INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE tags ADD COLUMN image_data TEXT NOT NULL DEFAULT ''")
+                except sqlite3.OperationalError:
+                    pass
 
             # Detect current schema state via column names.
             cursor.execute("PRAGMA table_info(tags)")
@@ -47,6 +60,11 @@ class TagMapper:
                 )
             elif "id" not in cols:
                 # Old schema with tag_uid as PK — recreate with surrogate PK.
+                # Explicit transaction makes the entire 4-step recreation atomic:
+                # if the process crashes mid-way, SQLite rolls back and the migration
+                # re-runs cleanly on next startup.
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("DROP TABLE IF EXISTS tags_new")  # cleanup from any prior partial run
                 cursor.execute(
                     """
                     CREATE TABLE tags_new (
@@ -68,8 +86,7 @@ class TagMapper:
                 )
                 cursor.execute("DROP TABLE tags")
                 cursor.execute("ALTER TABLE tags_new RENAME TO tags")
-
-            conn.commit()
+                cursor.execute("COMMIT")
         finally:
             conn.close()
 
@@ -89,14 +106,15 @@ class TagMapper:
                 (tag_uid, media_uri, name, int(shuffle)),
             )
             conn.commit()
-            assert cursor.lastrowid is not None
+            if cursor.lastrowid is None:
+                raise RuntimeError("INSERT did not return a row id")
             return cursor.lastrowid
         finally:
             conn.close()
 
     def update_mapping(
         self,
-        id: int,
+        mapping_id: int,
         media_uri: str,
         name: str = "",
         shuffle: bool = False,
@@ -108,37 +126,37 @@ class TagMapper:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE tags SET tag_uid = ?, media_uri = ?, name = ?, shuffle = ? WHERE id = ?",
-                (tag_uid, media_uri, name, int(shuffle), id),
+                (tag_uid, media_uri, name, int(shuffle), mapping_id),
             )
             conn.commit()
         finally:
             conn.close()
 
-    def get_mapping(self, id: int) -> tuple[int, str | None, str, str, bool, bool] | None:
-        """Returns (id, tag_uid, media_uri, name, shuffle, has_image) for a mapping, or None."""
+    def get_mapping(self, mapping_id: int) -> Mapping | None:
+        """Returns a Mapping for the given id, or None."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, tag_uid, media_uri, name, shuffle, image_data != '' FROM tags WHERE id = ?",
-                (id,),
+                (mapping_id,),
             )
             row = cursor.fetchone()
             if row:
-                return (row[0], row[1], row[2], row[3], bool(row[4]), bool(row[5]))
+                return Mapping(row[0], row[1], row[2], row[3], bool(row[4]), bool(row[5]))
             return None
         finally:
             conn.close()
 
-    def get_all_mappings(self) -> list[tuple[int, str | None, str, str, bool, bool]]:
-        """Returns all (id, tag_uid, media_uri, name, shuffle, has_image) mappings ordered by id."""
+    def get_all_mappings(self) -> list[Mapping]:
+        """Returns all Mapping objects ordered by id."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT id, tag_uid, media_uri, name, shuffle, image_data != '' FROM tags ORDER BY id"
             )
-            return [(i, t, u, n, bool(s), bool(hi)) for i, t, u, n, s, hi in cursor.fetchall()]
+            return [Mapping(i, t, u, n, bool(s), bool(hi)) for i, t, u, n, s, hi in cursor.fetchall()]
         finally:
             conn.close()
 
@@ -158,26 +176,26 @@ class TagMapper:
         finally:
             conn.close()
 
-    def upsert_image(self, id: int, image_data: str) -> bool:
+    def upsert_image(self, mapping_id: int, image_data: str) -> bool:
         """Stores base64-encoded image data for a mapping. Returns True if the mapping exists."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE tags SET image_data = ? WHERE id = ?",
-                (image_data, id),
+                (image_data, mapping_id),
             )
             conn.commit()
             return cursor.rowcount > 0
         finally:
             conn.close()
 
-    def delete_mapping(self, id: int) -> None:
+    def delete_mapping(self, mapping_id: int) -> None:
         """Deletes the mapping with the given id."""
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM tags WHERE id = ?", (id,))
+            cursor.execute("DELETE FROM tags WHERE id = ?", (mapping_id,))
             conn.commit()
         finally:
             conn.close()
@@ -195,14 +213,14 @@ class TagMapper:
         finally:
             conn.close()
 
-    def compute_hash(self, mappings: list[tuple[int, str | None, str, str, bool, bool]]) -> str:
+    def compute_hash(self, mappings: list[Mapping]) -> str:
         """SHA-256 of the given mappings, for use as ETag. Excludes id and image data.
 
         Sorts by tag_uid for determinism regardless of input order.
         Caller is responsible for filtering out mappings with null tag_uid.
         """
         entries = sorted(
-            [{"tag_uid": t, "media_uri": u, "name": n, "shuffle": s} for _id, t, u, n, s, _hi in mappings],
+            [{"tag_uid": m.tag_uid, "media_uri": m.media_uri, "name": m.name, "shuffle": m.shuffle} for m in mappings],
             key=lambda x: x["tag_uid"] or "",
         )
         serialized = json.dumps(entries, sort_keys=True)
@@ -210,5 +228,5 @@ class TagMapper:
 
     def content_hash(self) -> str:
         """SHA-256 of all assigned (non-null tag_uid) mappings, for use as ETag."""
-        mappings = [m for m in self.get_all_mappings() if m[1] is not None]
+        mappings = [m for m in self.get_all_mappings() if m.tag_uid is not None]
         return self.compute_hash(mappings)

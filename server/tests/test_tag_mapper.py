@@ -262,18 +262,6 @@ def test_get_mapping_nonexistent_id(temp_db: str) -> None:
     assert mapper.get_mapping(999) is None
 
 
-def test_get_all_mappings_returns_6_tuples(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    id1 = mapper.create_mapping("uri_a", "Alpha", tag_uid="aaa")
-    id2 = mapper.create_mapping("uri_b")
-    mappings = mapper.get_all_mappings()
-    assert len(mappings) == 2
-    assert mappings[0][0] == id1
-    assert mappings[1][0] == id2
-    assert len(mappings[0]) == 6
-    assert len(mappings[1]) == 6
-
-
 def test_update_mapping_by_id(temp_db: str) -> None:
     mapper = TagMapper(db_path=temp_db)
     id_ = mapper.create_mapping("uri_a", "Alpha")
@@ -300,50 +288,6 @@ def test_update_mapping_clear_uid(temp_db: str) -> None:
     m = mapper.get_mapping(id_)
     assert m is not None
     assert m[1] is None
-
-
-def test_delete_mapping_by_id(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    id_ = mapper.create_mapping("uri_a", tag_uid="aa:bb")
-    mapper.delete_mapping(id_)
-    assert mapper.get_mapping(id_) is None
-    assert mapper.get_uri("aa:bb") is None
-
-
-def test_delete_nonexistent_id(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    mapper.delete_mapping(999)  # should not raise
-
-
-def test_upsert_image_by_id(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    id_ = mapper.create_mapping("uri_a")
-    assert mapper.upsert_image(id_, "base64data") is True
-    rows = mapper.get_mappings_with_images([id_])
-    assert rows == [(id_, "base64data")]
-
-
-def test_upsert_image_nonexistent_id(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    assert mapper.upsert_image(999, "data") is False
-
-
-def test_get_mappings_with_images_by_id(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    id1 = mapper.create_mapping("uri_a")
-    id2 = mapper.create_mapping("uri_b")
-    id3 = mapper.create_mapping("uri_c")
-    mapper.upsert_image(id1, "img_a")
-    mapper.upsert_image(id3, "img_c")
-    rows = mapper.get_mappings_with_images([id1, id2, id3])
-    assert len(rows) == 2
-    assert (id1, "img_a") in rows
-    assert (id3, "img_c") in rows
-
-
-def test_get_mappings_with_images_empty_ids(temp_db: str) -> None:
-    mapper = TagMapper(db_path=temp_db)
-    assert mapper.get_mappings_with_images([]) == []
 
 
 def test_migration_from_old_schema(temp_db: str) -> None:

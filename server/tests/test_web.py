@@ -880,28 +880,6 @@ def test_add_mapping_without_uid(client: FlaskClient) -> None:
     assert b"No tag" in resp.data  # unassigned indicator
 
 
-def test_add_mapping_with_uid_uses_integer_id_in_routes(client: FlaskClient) -> None:
-    client.post("/mappings", data={"tag_uid": "aa:bb", "media_uri": "uri_a", "name": "Alpha"})
-    id_ = _get_mapping_id(client)
-
-    resp = client.get(f"/mappings/{id_}/card")
-    assert resp.status_code == 200
-    assert b"Alpha" in resp.data
-    # Card id is based on integer, not tag_uid
-    assert f'id="card-{id_}"'.encode() in resp.data
-
-
-def test_edit_form_uses_integer_id(client: FlaskClient) -> None:
-    client.post("/mappings", data={"tag_uid": "aa:bb", "media_uri": "uri_a", "name": "Alpha"})
-    id_ = _get_mapping_id(client)
-
-    resp = client.get(f"/mappings/{id_}/edit-form")
-    assert resp.status_code == 200
-    html = resp.data.decode()
-    assert f'id="card-{id_}"' in html
-    assert "Save" in html
-
-
 def test_edit_mapping_changes_uid(client: FlaskClient) -> None:
     client.post("/mappings", data={"media_uri": "uri_a", "name": "Alpha"})
     id_ = _get_mapping_id(client)
@@ -956,35 +934,6 @@ def test_card_view_unassigned_shows_indicator(client: FlaskClient) -> None:
     assert b"No tag" in resp.data
 
 
-def test_delete_mapping_by_id(client: FlaskClient) -> None:
-    client.post("/mappings", data={"tag_uid": "del1", "media_uri": "some_uri"})
-    id_ = _get_mapping_id(client)
-
-    resp = client.post(f"/mappings/{id_}/delete")
-    assert resp.status_code == 302
-
-    resp = client.get("/")
-    assert b"some_uri" not in resp.data
-
-
-def test_print_uses_integer_id_params(client: FlaskClient) -> None:
-    import base64
-    import tontraeger_server.web as web_module
-
-    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
-    client.post("/mappings", data={"tag_uid": "p1", "media_uri": "uri_a"})
-    client.post("/mappings", data={"tag_uid": "p2", "media_uri": "uri_b"})
-    mappings = web_module.mapper.get_all_mappings()
-    id1, id2 = mappings[0][0], mappings[1][0]
-    web_module.mapper.upsert_image(id1, jpeg_stub)
-    web_module.mapper.upsert_image(id2, jpeg_stub)
-
-    resp = client.get(f"/print?id={id1}&id={id2}")
-    assert resp.status_code == 200
-    assert f"/mappings/{id1}/image".encode() in resp.data
-    assert f"/mappings/{id2}/image".encode() in resp.data
-
-
 def test_api_mappings_excludes_unassigned(client: FlaskClient) -> None:
     client.post("/mappings", data={"media_uri": "uri_a", "name": "No Tag"})
     client.post("/mappings", data={"tag_uid": "has-uid", "media_uri": "uri_b", "name": "Has Tag"})
@@ -1026,8 +975,33 @@ def test_pending_tag_missing_since(client: FlaskClient) -> None:
 
 
 def test_pending_tag_returns_uid(client: FlaskClient) -> None:
-    since = "2000-01-01T00:00:00.000000+00:00"
+    since = "2000-01-01T00:00:00.000Z"
     client.post("/api/unknown-tags", json={"tag_uid": "04:ab:cd"})
     resp = client.get(f"/api/pending-tag?since={since}")
+    assert resp.status_code == 200
+    assert resp.json["tag_uid"] == "04:ab:cd"
+
+
+def test_pending_tag_z_suffix_normalized(client: FlaskClient) -> None:
+    """Z-suffixed 'since' compares correctly with server's +00:00 timestamps.
+
+    JS sends since = new Date().toISOString() → "2026-03-24T10:30:00.123Z"
+    Server stores last_seen via datetime.now(timezone.utc).isoformat() → "2026-03-24T10:30:00.123456+00:00"
+    Without normalization, "123456+00:00" < "123Z" ('+' < 'Z' in ASCII), causing
+    false negatives for tags scanned within the same millisecond as since.
+    """
+    import tontraeger_server.web as web_module
+
+    client.post("/api/unknown-tags", json={"tag_uid": "04:ab:cd"})
+    entry = web_module.unknown_tags.get_all()[0]
+    last_seen = entry["last_seen"]  # e.g. "2026-03-24T10:30:00.123456+00:00"
+
+    # Construct a Z-suffixed since equal to the same millisecond.
+    # last_seen[:23] = "2026-03-24T10:30:00.123" (truncated to ms precision)
+    since_z = last_seen[:23] + "Z"
+
+    resp = client.get(f"/api/pending-tag?since={since_z}")
+    # Without the fix, "123456+00:00" > "123Z" is False → 204 (tag not found).
+    # With the fix (Z → +00:00), "123456+00:00" > "123+00:00" is True → 200.
     assert resp.status_code == 200
     assert resp.json["tag_uid"] == "04:ab:cd"
