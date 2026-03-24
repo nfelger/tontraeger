@@ -1285,10 +1285,27 @@ def _card_edit_html(
             <input type="text" name="name" value="{e_name}" placeholder="e.g. Kids playlist"
                    form="edit-form-{id}">
           </div>
-          <div class="form-field">
+          <div class="form-field"
+               x-data="{{ waiting: false, since: '' }}"
+               @assign-tag-found="$refs.tagUidInput.value = $event.detail.tag_uid; waiting = false">
             <label>Tag UID</label>
-            <input type="text" name="tag_uid" value="{e_tag_uid}" placeholder="e.g. 04:ab:cd:..."
-                   form="edit-form-{id}">
+            <div style="display:flex; gap:0.4rem; align-items:center;">
+              <input type="text" name="tag_uid" value="{e_tag_uid}" placeholder="e.g. 04:ab:cd:..."
+                     x-ref="tagUidInput" form="edit-form-{id}">
+              <button type="button" class="btn btn-save-url" x-show="!waiting"
+                      @click="waiting = true; since = new Date().toISOString()">Assign tag</button>
+              <template x-if="waiting">
+                <div style="display:flex; gap:0.4rem; align-items:center;">
+                  <span style="font-size:0.8rem; color:var(--muted); font-style:italic;">Scanning\u2026</span>
+                  <div :hx-get="`/api/pending-tag?since=${{encodeURIComponent(since)}}`"
+                       hx-trigger="load, every 1s"
+                       hx-swap="none"
+                       hx-on::after-request="if (event.detail.xhr.status === 200) this.dispatchEvent(new CustomEvent('assign-tag-found', {{bubbles: true, detail: JSON.parse(event.detail.xhr.responseText)}}))"
+                       x-init="$nextTick(() => htmx.process($el))"></div>
+                  <button type="button" class="btn btn-save-url" @click="waiting = false">Cancel</button>
+                </div>
+              </template>
+            </div>
           </div>
           <div class="form-field">
             <label>Media URI</label>
