@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import secrets
+import sqlite3
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -48,6 +49,13 @@ class UnknownTagInbox:
 
     def get_all(self) -> list[dict]:
         return list(self._tags.values())
+
+    def get_since(self, since_iso: str) -> dict | None:
+        """Return the most recently seen unknown tag after since_iso, or None."""
+        for entry in reversed(list(self._tags.values())):
+            if entry["last_seen"] > since_iso:
+                return entry
+        return None
 
     def clear(self) -> None:
         self._tags.clear()
@@ -743,7 +751,7 @@ PAGE_TEMPLATE = """
           </div>
           <div class="form-field">
             <label for="tag_uid">Tag UID</label>
-            <input type="text" id="tag_uid" name="tag_uid" x-ref="tagUid" placeholder="e.g. 123456789" required>
+            <input type="text" id="tag_uid" name="tag_uid" x-ref="tagUid" placeholder="e.g. 123456789">
           </div>
           <div class="form-field">
             <label for="media_uri">Media URI</label>
@@ -795,7 +803,7 @@ PAGE_TEMPLATE = """
         <div style="display:flex; gap:0.4rem;">
           <button type="button" class="btn btn-primary" style="margin-top:0; font-size:0.75rem; padding:0.35rem 0.8rem;"
                   :disabled="$store.printMode.selected.size === 0"
-                  @click="window.open('/print?' + Array.from($store.printMode.selected).map(u => 'tag_uid=' + encodeURIComponent(u)).join('&'), '_blank')">
+                  @click="window.open('/print?' + Array.from($store.printMode.selected).map(i => 'id=' + i).join('&'), '_blank')">
             Print selected (<span x-text="$store.printMode.selected.size"></span>)
           </button>
           <button type="button" class="btn btn-delete"
@@ -990,9 +998,9 @@ PRINT_TEMPLATE = """
   {% for page_cards in pages %}
   <div class="sheet">
     <div class="grid">
-      {% for uid in page_cards %}
+      {% for mid in page_cards %}
       <div class="cell">
-        <img src="{{ url_for('get_image', tag_uid=uid) }}" alt="artwork">
+        <img src="{{ url_for('get_image', id=mid) }}" alt="artwork">
         <div class="card-outline"></div>
       </div>
       {% endfor %}
@@ -1009,10 +1017,10 @@ CARDS_PER_PAGE = 12  # 3 columns × 4 rows on A4
 
 @app.route("/print")
 def print_tags() -> str:
-    uids = request.args.getlist("tag_uid")
-    rows = mapper.get_mappings_with_images(uids)
-    valid_uids = [uid for uid, _data in rows]
-    pages = [valid_uids[i:i + CARDS_PER_PAGE] for i in range(0, len(valid_uids), CARDS_PER_PAGE)]
+    ids = request.args.getlist("id", type=int)
+    rows = mapper.get_mappings_with_images(ids)
+    valid_ids = [mid for mid, _data in rows]
+    pages = [valid_ids[i:i + CARDS_PER_PAGE] for i in range(0, len(valid_ids), CARDS_PER_PAGE)]
     if not pages:
         pages = [[]]
     return render_template_string(PRINT_TEMPLATE, pages=pages)
@@ -1064,64 +1072,71 @@ def api_speakers() -> Response:
 
 @app.route("/mappings", methods=["POST"])
 def add_mapping() -> Response:
-    tag_uid = request.form.get("tag_uid", "").strip()
+    tag_uid = request.form.get("tag_uid", "").strip() or None
     media_uri = request.form.get("media_uri", "").strip()
     name = request.form.get("name", "").strip()
     shuffle = request.form.get("shuffle") == "on"
-    if tag_uid and media_uri:
-        mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
+    if media_uri:
+        mapping_id = mapper.create_mapping(media_uri, name, shuffle, tag_uid=tag_uid)
         if media_uri.startswith("https://open.spotify.com/"):
             image_data = fetch_spotify_artwork(media_uri)
             if image_data:
-                mapper.upsert_image(tag_uid, image_data)
-        flash(f"Mapping added for tag {name or tag_uid}")
+                mapper.upsert_image(mapping_id, image_data)
+        flash(f"Mapping added for {name or tag_uid or 'new tag'}")
     return redirect(url_for("index"))
 
 
-@app.route("/mappings/<tag_uid>/edit-form")
-def edit_form(tag_uid: str) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(tag_uid)
+@app.route("/mappings/<int:id>/edit-form")
+def edit_form(id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(id)
     if not mapping:
         return Response("mapping not found", status=404)
     return Response(_card_edit_html(*mapping))
 
 
-@app.route("/mappings/<tag_uid>/card")
-def card_view(tag_uid: str) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(tag_uid)
+@app.route("/mappings/<int:id>/card")
+def card_view(id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(id)
     if not mapping:
         return Response("mapping not found", status=404)
     return Response(_card_view_html(*mapping))
 
 
-@app.route("/mappings/<tag_uid>/edit", methods=["POST"])
-def edit_mapping(tag_uid: str) -> Response | tuple[Response, int]:
-    mapping = mapper.get_mapping(tag_uid)
+@app.route("/mappings/<int:id>/edit", methods=["POST"])
+def edit_mapping(id: int) -> Response | tuple[Response, int]:
+    mapping = mapper.get_mapping(id)
     if not mapping:
         if _wants_html():
             return Response("mapping not found", status=404)
         return jsonify(error="mapping not found"), 404
+    id_, _, _, old_name, old_shuffle, has_image = mapping
     media_uri = request.form.get("media_uri", "").strip()
     name = request.form.get("name", "").strip()
     shuffle = request.form.get("shuffle") == "on"
+    tag_uid = request.form.get("tag_uid", "").strip() or None
     if not media_uri:
-        _, _, old_name, old_shuffle, has_image = mapping
         return Response(
-            _card_edit_html(tag_uid, "", name or old_name, shuffle, has_image, error="Media URI is required")
+            _card_edit_html(id_, tag_uid, "", name or old_name, old_shuffle, has_image, error="Media URI is required")
         )
-    mapper.insert_mapping(tag_uid, media_uri, name, shuffle)
+    try:
+        mapper.update_mapping(id_, media_uri, name, shuffle, tag_uid=tag_uid)
+    except sqlite3.IntegrityError:
+        return Response(
+            _card_edit_html(id_, tag_uid, media_uri, name, shuffle, has_image,
+                            error="This tag UID is already assigned to another mapping.")
+        )
     if _wants_html():
-        updated = mapper.get_mapping(tag_uid)
+        updated = mapper.get_mapping(id_)
         if not updated:
             return Response("mapping not found after save", status=500)
         return Response(_card_view_html(*updated))
     return redirect(url_for("index"))
 
 
-@app.route("/mappings/<tag_uid>/delete", methods=["POST"])
-def delete_mapping(tag_uid: str) -> Response:
-    mapper.delete_mapping(tag_uid)
-    flash(f"Mapping removed for tag {tag_uid}")
+@app.route("/mappings/<int:id>/delete", methods=["POST"])
+def delete_mapping(id: int) -> Response:
+    mapper.delete_mapping(id)
+    flash("Mapping removed")
     return redirect(url_for("index"))
 
 
@@ -1173,56 +1188,59 @@ def _speaker_options_html() -> str:
         return ""
 
 
-def _thumb_html(tag_uid: str) -> str:
-    """Return an <img> fragment for the given tag's artwork."""
-    css_id = escape(tag_uid.replace(":", "-"))
-    src = url_for("get_image", tag_uid=tag_uid)
+def _thumb_html(id: int) -> str:
+    """Return an <img> fragment for the given mapping's artwork."""
+    src = url_for("get_image", id=id)
     return (
-        f'<img id="thumb-{css_id}" class="card-thumb"'
+        f'<img id="thumb-{id}" class="card-thumb"'
         f' src="{src}?v={int(time.time())}"'
         f' alt="artwork" loading="lazy">'
     )
 
 
-def _card_thumb_html(tag_uid: str, css_id: str, has_image: bool) -> str:
+def _card_thumb_html(id: int, has_image: bool) -> str:
     """Return a thumbnail element for a card (img or placeholder)."""
     if has_image:
         return (
-            f'<img id="thumb-{css_id}" class="card-thumb"'
-            f' src="{url_for("get_image", tag_uid=tag_uid)}" alt="artwork" loading="lazy">'
+            f'<img id="thumb-{id}" class="card-thumb"'
+            f' src="{url_for("get_image", id=id)}" alt="artwork" loading="lazy">'
         )
     return (
-        f'<div id="thumb-{css_id}" class="card-thumb-placeholder"'
+        f'<div id="thumb-{id}" class="card-thumb-placeholder"'
         f' title="No artwork">&#9835;</div>'
     )
 
 
-def _card_view_html(tag_uid: str, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
+def _card_view_html(id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool) -> str:
     """Return a view-mode card HTML fragment for the given mapping."""
-    css_id = escape(tag_uid.replace(":", "-"))
-    e_tag_uid = escape(tag_uid)
+    e_tag_uid = escape(tag_uid) if tag_uid else ""
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-    tag_uid_json = escape(json.dumps(tag_uid))
-    thumb = _card_thumb_html(tag_uid, css_id, has_image)
+    thumb = _card_thumb_html(id, has_image)
 
-    display_name = e_name if name else e_tag_uid
+    display_name = e_name if name else (e_tag_uid if tag_uid else "Unnamed")
     shuffle_badge = ' <span class="badge-shuffle" title="Shuffle">&#x1F500;</span>' if shuffle else ""
-    tag_line = f'<div class="card-uri" title="{e_tag_uid}">{e_tag_uid}</div>' if name else ""
+
+    if tag_uid and name:
+        tag_line = f'<div class="card-uri" title="{e_tag_uid}">{e_tag_uid}</div>'
+    elif not tag_uid:
+        tag_line = '<div class="card-uri" style="color:var(--muted);font-style:italic;">No tag assigned</div>'
+    else:
+        tag_line = ""
 
     if media_uri.upper() == "STOP":
         uri_line = '<div class="card-uri stop-cmd">&#9632; stop playback</div>'
     else:
         uri_line = f'<div class="card-uri" title="{e_media_uri}">{e_media_uri}</div>'
 
-    edit_url = url_for("edit_form", tag_uid=tag_uid)
+    edit_url = url_for("edit_form", id=id)
 
-    return f"""<div class="card" id="card-{css_id}" x-data>
+    return f"""<div class="card" id="card-{id}" x-data>
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
                  {"disabled " + 'title="Capture artwork first"' if not has_image else ""}
-                 @change='{tag_uid_json} && ($event.target.checked ? $store.printMode.selected.add({tag_uid_json}) : $store.printMode.selected.delete({tag_uid_json}))'>
+                 @change='($event.target.checked ? $store.printMode.selected.add({id}) : $store.printMode.selected.delete({id}))'>
         </div>
       </template>
       {thumb}
@@ -1234,31 +1252,30 @@ def _card_view_html(tag_uid: str, media_uri: str, name: str, shuffle: bool, has_
       <div class="card-actions" x-show="!$store.printMode.active">
         <button type="button" class="btn btn-edit"
                 hx-get="{edit_url}"
-                hx-target="#card-{css_id}"
+                hx-target="#card-{id}"
                 hx-swap="outerHTML">Edit</button>
       </div>
     </div>"""
 
 
 def _card_edit_html(
-    tag_uid: str, media_uri: str, name: str, shuffle: bool, has_image: bool, error: str | None = None
+    id: int, tag_uid: str | None, media_uri: str, name: str, shuffle: bool, has_image: bool, error: str | None = None
 ) -> str:
     """Return an edit-mode card HTML fragment for the given mapping."""
-    css_id = escape(tag_uid.replace(":", "-"))
-    e_tag_uid = escape(tag_uid)
+    e_tag_uid = escape(tag_uid or "")
     e_name = escape(name)
     e_media_uri = escape(media_uri)
-    thumb = _card_thumb_html(tag_uid, css_id, has_image)
+    thumb = _card_thumb_html(id, has_image)
 
-    edit_url = url_for("edit_mapping", tag_uid=tag_uid)
-    card_url = url_for("card_view", tag_uid=tag_uid)
-    delete_url = url_for("delete_mapping", tag_uid=tag_uid)
-    image_url = url_for("set_image", tag_uid=tag_uid)
+    edit_url = url_for("edit_mapping", id=id)
+    card_url = url_for("card_view", id=id)
+    delete_url = url_for("delete_mapping", id=id)
+    image_url = url_for("set_image", id=id)
 
     checked = " checked" if shuffle else ""
     error_html = f'<div class="edit-error">{escape(error)}</div>' if error else ""
 
-    return f"""<div class="card card-editing" id="card-{css_id}">
+    return f"""<div class="card card-editing" id="card-{id}">
       {thumb}
       <div class="card-body">
         {error_html}
@@ -1266,23 +1283,24 @@ def _card_edit_html(
           <div class="form-field">
             <label>Name</label>
             <input type="text" name="name" value="{e_name}" placeholder="e.g. Kids playlist"
-                   form="edit-form-{css_id}">
+                   form="edit-form-{id}">
           </div>
           <div class="form-field">
             <label>Tag UID</label>
-            <input type="text" value="{e_tag_uid}" disabled>
+            <input type="text" name="tag_uid" value="{e_tag_uid}" placeholder="e.g. 04:ab:cd:..."
+                   form="edit-form-{id}">
           </div>
           <div class="form-field">
             <label>Media URI</label>
             <input type="text" name="media_uri" value="{e_media_uri}" placeholder="Spotify link, Sonos URI, or STOP" required
-                   form="edit-form-{css_id}">
+                   form="edit-form-{id}">
           </div>
           <div class="form-field">
             <label>Shuffle</label>
             <div class="edit-checkbox-wrap">
-              <input type="checkbox" id="shuffle-{css_id}" name="shuffle"{checked}
-                     form="edit-form-{css_id}">
-              <label for="shuffle-{css_id}">Play in shuffle mode</label>
+              <input type="checkbox" id="shuffle-{id}" name="shuffle"{checked}
+                     form="edit-form-{id}">
+              <label for="shuffle-{id}">Play in shuffle mode</label>
             </div>
           </div>
         </div>
@@ -1290,13 +1308,13 @@ def _card_edit_html(
           <label>Cover Art</label>
           <div class="edit-image-row">
             <form hx-post="{image_url}"
-                  hx-target="#thumb-{css_id}" hx-swap="outerHTML"
+                  hx-target="#thumb-{id}" hx-swap="outerHTML"
                   class="edit-image-url-form">
               <input type="text" name="image_url" placeholder="Image URL&hellip;">
               <button type="submit" class="btn btn-save-url">Load from URL</button>
             </form>
             <form hx-post="{image_url}"
-                  hx-target="#thumb-{css_id}" hx-swap="outerHTML"
+                  hx-target="#thumb-{id}" hx-swap="outerHTML"
                   hx-encoding="multipart/form-data">
               <label class="btn btn-save-url" style="cursor:pointer;">
                 File&hellip;
@@ -1309,15 +1327,15 @@ def _card_edit_html(
       </div>
       <div class="card-edit-footer">
         <div class="card-actions-edit">
-          <form id="edit-form-{css_id}"
+          <form id="edit-form-{id}"
                 hx-post="{edit_url}"
-                hx-target="#card-{css_id}"
+                hx-target="#card-{id}"
                 hx-swap="outerHTML">
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
           </form>
           <button type="button" class="btn btn-save-url"
                   hx-get="{card_url}"
-                  hx-target="#card-{css_id}"
+                  hx-target="#card-{id}"
                   hx-swap="outerHTML">Cancel</button>
           <form method="post" action="{delete_url}" style="display:inline"
                 hx-confirm="Delete this mapping?">
@@ -1376,26 +1394,26 @@ def _wants_html() -> bool:
     return "HX-Request" in request.headers
 
 
-@app.route("/mappings/<tag_uid>/image", methods=["POST"])
-def set_image(tag_uid: str) -> Response | tuple[Response, int]:
+@app.route("/mappings/<int:id>/image", methods=["POST"])
+def set_image(id: int) -> Response | tuple[Response, int]:
     image_data, error, status = _parse_image_payload()
     if error:
         if _wants_html():
             return Response(f"<span>{escape(error)}</span>", status=status)
         return jsonify(error=error), status
     assert image_data is not None
-    if not mapper.upsert_image(tag_uid, image_data):
+    if not mapper.upsert_image(id, image_data):
         if _wants_html():
             return Response("<span>mapping not found</span>", status=404)
         return jsonify(error="mapping not found"), 404
     if _wants_html():
-        return Response(_thumb_html(tag_uid))
+        return Response(_thumb_html(id))
     return jsonify(ok=True)
 
 
-@app.route("/mappings/<tag_uid>/image", methods=["GET"])
-def get_image(tag_uid: str) -> Response | tuple[Response, int]:
-    rows = mapper.get_mappings_with_images([tag_uid])
+@app.route("/mappings/<int:id>/image", methods=["GET"])
+def get_image(id: int) -> Response | tuple[Response, int]:
+    rows = mapper.get_mappings_with_images([id])
     if not rows:
         return jsonify(error="no image"), 404
     image_data = rows[0][1]
@@ -1436,18 +1454,30 @@ def fragment_speaker_options() -> Response:
 
 @app.route("/api/mappings")
 def api_mappings() -> Response:
-    mappings = mapper.get_all_mappings()
-    etag = mapper.compute_hash(mappings)
+    all_mappings = mapper.get_all_mappings()
+    assigned = [m for m in all_mappings if m[1] is not None]
+    etag = mapper.compute_hash(assigned)
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
     resp = jsonify(
         mappings=[
             {"tag_uid": t, "media_uri": u, "name": n, "shuffle": s, "has_image": hi}
-            for t, u, n, s, hi in mappings
+            for _id, t, u, n, s, hi in assigned
         ]
     )
     resp.headers["ETag"] = etag
     return resp
+
+
+@app.route("/api/pending-tag")
+def api_pending_tag() -> Response | tuple[Response, int]:
+    since = request.args.get("since")
+    if not since:
+        return jsonify(error="missing since"), 400
+    entry = unknown_tags.get_since(since)
+    if entry is None:
+        return Response(status=204)
+    return jsonify(tag_uid=entry["tag_uid"])
 
 
 if __name__ == "__main__":

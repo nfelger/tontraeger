@@ -54,8 +54,9 @@ def test_add_mapping(client: FlaskClient) -> None:
 
 def test_delete_mapping(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "222", "media_uri": "some_uri"})
+    id_ = _get_mapping_id(client)
 
-    resp = client.post("/mappings/222/delete")
+    resp = client.post(f"/mappings/{id_}/delete")
     assert resp.status_code == 302
 
     resp = client.get("/")
@@ -249,11 +250,12 @@ def test_shuffle_badge_absent_without_shuffle(client: FlaskClient) -> None:
 def test_etag_changes_on_shuffle_toggle(client: FlaskClient) -> None:
     """Toggling shuffle on a mapping must invalidate the ETag."""
     client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": ""})
+    id_ = _get_mapping_id(client)
     resp1 = client.get("/api/mappings")
     old_etag = resp1.headers["ETag"]
 
-    # Re-add same mapping with shuffle=True (INSERT OR REPLACE)
-    client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": "", "shuffle": "on"})
+    # Update the mapping with shuffle=True via the edit endpoint
+    client.post(f"/mappings/{id_}/edit", data={"tag_uid": "aaa", "media_uri": "uri_a", "name": "", "shuffle": "on"}, headers=HX_HEADERS)
     resp2 = client.get("/api/mappings", headers={"If-None-Match": old_etag})
     assert resp2.status_code == 200
     assert resp2.headers["ETag"] != old_etag
@@ -354,6 +356,12 @@ def test_now_playing_with_unknown_speaker(client: FlaskClient) -> None:
 
 
 
+def _get_mapping_id(client: FlaskClient, index: int = 0) -> int:
+    """Helper: return the id of the nth mapping (0-indexed)."""
+    import tontraeger_server.web as web_module
+    return web_module.mapper.get_all_mappings()[index][0]
+
+
 # ── Image routes ──────────────────────────────────────
 
 
@@ -362,12 +370,13 @@ def test_set_image(client: FlaskClient) -> None:
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
 
     client.post("/mappings", data={"tag_uid": "img1", "media_uri": "uri_a"})
+    id_ = _get_mapping_id(client)
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
-        resp = client.post("/mappings/img1/image", json={"image_url": "http://example.com/art.jpg"})
+        resp = client.post(f"/mappings/{id_}/image", json={"image_url": "http://example.com/art.jpg"})
     assert resp.status_code == 200
     assert resp.json == {"ok": True}
 
-    resp = client.get("/mappings/img1/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
 
@@ -377,18 +386,20 @@ def test_set_image_via_base64_upload(client: FlaskClient) -> None:
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
 
     client.post("/mappings", data={"tag_uid": "img_up", "media_uri": "uri_up"})
-    resp = client.post("/mappings/img_up/image", json={"image_data": jpeg_stub})
+    id_ = _get_mapping_id(client)
+    resp = client.post(f"/mappings/{id_}/image", json={"image_data": jpeg_stub})
     assert resp.status_code == 200
     assert resp.json == {"ok": True}
 
-    resp = client.get("/mappings/img_up/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
 
 
 def test_set_image_invalid_base64(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "bad64", "media_uri": "uri"})
-    resp = client.post("/mappings/bad64/image", json={"image_data": "not!valid!base64!"})
+    id_ = _get_mapping_id(client)
+    resp = client.post(f"/mappings/{id_}/image", json={"image_data": "not!valid!base64!"})
     assert resp.status_code == 400
     assert resp.json["error"] == "invalid base64"
 
@@ -400,8 +411,9 @@ def test_set_image_too_large(client: FlaskClient) -> None:
     web_module.MAX_IMAGE_SIZE = 100  # 100 bytes for test
     try:
         client.post("/mappings", data={"tag_uid": "big1", "media_uri": "uri"})
+        id_ = _get_mapping_id(client)
         large_data = base64.b64encode(b"\xff\xd8" + b"\x00" * 200).decode("ascii")
-        resp = client.post("/mappings/big1/image", json={"image_data": large_data})
+        resp = client.post(f"/mappings/{id_}/image", json={"image_data": large_data})
         assert resp.status_code == 413
         assert resp.json["error"] == "image too large"
     finally:
@@ -416,49 +428,52 @@ def test_set_image_form_url(client: FlaskClient) -> None:
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
 
     client.post("/mappings", data={"tag_uid": "furl1", "media_uri": "uri"})
+    id_ = _get_mapping_id(client)
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
-        resp = client.post("/mappings/furl1/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+        resp = client.post(f"/mappings/{id_}/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
     assert resp.status_code == 200
     assert b"<img" in resp.data
-    assert b'id="thumb-furl1"' in resp.data  # no colons in test UID, so unchanged
+    assert f'id="thumb-{id_}"'.encode() in resp.data
 
-    resp = client.get("/mappings/furl1/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
 
 
-def test_set_image_form_colon_uid_css_safe(client: FlaskClient) -> None:
-    """Tag UIDs with colons get CSS-safe IDs (colons replaced with hyphens)."""
+def test_set_image_form_integer_id_in_html(client: FlaskClient) -> None:
+    """After set_image, returned HTML uses integer-based IDs."""
     import base64
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
 
     client.post("/mappings", data={"tag_uid": "04:3d:24:82", "media_uri": "uri"})
+    id_ = _get_mapping_id(client)
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
-        resp = client.post("/mappings/04:3d:24:82/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+        resp = client.post(f"/mappings/{id_}/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
     assert resp.status_code == 200
-    assert b'id="thumb-04-3d-24-82"' in resp.data
+    assert f'id="thumb-{id_}"'.encode() in resp.data
 
-    # Main page and edit form use CSS-safe IDs
+    # Main page and edit form use integer-based IDs
     resp = client.get("/")
-    assert b'id="thumb-04-3d-24-82"' in resp.data
-    assert b'id="card-04-3d-24-82"' in resp.data
+    assert f'id="thumb-{id_}"'.encode() in resp.data
+    assert f'id="card-{id_}"'.encode() in resp.data
 
-    # Edit form has hx-target with CSS-safe ID for image upload
-    resp = client.get("/mappings/04:3d:24:82/edit-form")
-    assert b'hx-target="#thumb-04-3d-24-82"' in resp.data
+    # Edit form has hx-target with integer-based ID for image upload
+    resp = client.get(f"/mappings/{id_}/edit-form")
+    assert f'hx-target="#thumb-{id_}"'.encode() in resp.data
 
 
 def test_set_image_form_file_upload(client: FlaskClient) -> None:
     import io
 
     client.post("/mappings", data={"tag_uid": "fup1", "media_uri": "uri"})
+    id_ = _get_mapping_id(client)
     data = {"image_file": (io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 20), "photo.jpg")}
-    resp = client.post("/mappings/fup1/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
+    resp = client.post(f"/mappings/{id_}/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
     assert resp.status_code == 200
     assert b"<img" in resp.data
-    assert b'id="thumb-fup1"' in resp.data
+    assert f'id="thumb-{id_}"'.encode() in resp.data
 
-    resp = client.get("/mappings/fup1/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
 
@@ -470,8 +485,9 @@ def test_set_image_form_file_too_large(client: FlaskClient) -> None:
     web_module.MAX_IMAGE_SIZE = 100
     try:
         client.post("/mappings", data={"tag_uid": "fbig", "media_uri": "uri"})
+        id_ = _get_mapping_id(client)
         data = {"image_file": (io.BytesIO(b"\xff\xd8" + b"\x00" * 200), "big.jpg")}
-        resp = client.post("/mappings/fbig/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
+        resp = client.post(f"/mappings/{id_}/image", data=data, content_type="multipart/form-data", headers=HX_HEADERS)
         assert resp.status_code == 413
         assert b"image too large" in resp.data
     finally:
@@ -480,7 +496,7 @@ def test_set_image_form_file_too_large(client: FlaskClient) -> None:
 
 def test_set_image_form_nonexistent_mapping(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value="base64data"):
-        resp = client.post("/mappings/no-such/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
+        resp = client.post("/mappings/99999/image", data={"image_url": "http://example.com/art.jpg"}, headers=HX_HEADERS)
     assert resp.status_code == 404
     assert b"<span>" in resp.data
     assert b"mapping not found" in resp.data
@@ -488,7 +504,8 @@ def test_set_image_form_nonexistent_mapping(client: FlaskClient) -> None:
 
 def test_set_image_form_missing_fields(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "fmiss", "media_uri": "uri"})
-    resp = client.post("/mappings/fmiss/image", data={}, headers=HX_HEADERS)
+    id_ = _get_mapping_id(client)
+    resp = client.post(f"/mappings/{id_}/image", data={}, headers=HX_HEADERS)
     assert resp.status_code == 400
     assert b"<span>" in resp.data
 
@@ -499,34 +516,38 @@ def test_set_image_json_still_returns_json(client: FlaskClient) -> None:
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
 
     client.post("/mappings", data={"tag_uid": "jsoncheck", "media_uri": "uri"})
+    id_ = _get_mapping_id(client)
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value=jpeg_stub):
-        resp = client.post("/mappings/jsoncheck/image", json={"image_url": "http://example.com/art.jpg"})
+        resp = client.post(f"/mappings/{id_}/image", json={"image_url": "http://example.com/art.jpg"})
     assert resp.status_code == 200
     assert resp.json == {"ok": True}
 
 
 def test_set_image_missing_url(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "img2", "media_uri": "uri_b"})
-    resp = client.post("/mappings/img2/image", json={})
+    id_ = _get_mapping_id(client)
+    resp = client.post(f"/mappings/{id_}/image", json={})
     assert resp.status_code == 400
 
 
 def test_set_image_fetch_fails(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "img3", "media_uri": "uri_c"})
+    id_ = _get_mapping_id(client)
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value=None):
-        resp = client.post("/mappings/img3/image", json={"image_url": "http://bad.url/nope"})
+        resp = client.post(f"/mappings/{id_}/image", json={"image_url": "http://bad.url/nope"})
     assert resp.status_code == 502
 
 
 def test_set_image_nonexistent_mapping(client: FlaskClient) -> None:
     with patch("tontraeger_server.web.fetch_image_as_base64", return_value="base64data"):
-        resp = client.post("/mappings/no-such-tag/image", json={"image_url": "http://example.com/art.jpg"})
+        resp = client.post("/mappings/99999/image", json={"image_url": "http://example.com/art.jpg"})
     assert resp.status_code == 404
 
 
 def test_get_image_no_image(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "noimg", "media_uri": "uri_d"})
-    resp = client.get("/mappings/noimg/image")
+    id_ = _get_mapping_id(client)
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 404
 
 
@@ -536,21 +557,22 @@ def test_get_image_etag(client: FlaskClient) -> None:
 
     client.post("/mappings", data={"tag_uid": "etag1", "media_uri": "uri"})
     import tontraeger_server.web as web_module
-    web_module.mapper.upsert_image("etag1", jpeg_stub)
+    id_ = _get_mapping_id(client)
+    web_module.mapper.upsert_image(id_, jpeg_stub)
 
-    resp1 = client.get("/mappings/etag1/image")
+    resp1 = client.get(f"/mappings/{id_}/image")
     assert resp1.status_code == 200
     assert "ETag" in resp1.headers
     etag = resp1.headers["ETag"]
 
     # Same ETag returns 304
-    resp2 = client.get("/mappings/etag1/image", headers={"If-None-Match": etag})
+    resp2 = client.get(f"/mappings/{id_}/image", headers={"If-None-Match": etag})
     assert resp2.status_code == 304
 
     # After updating image, old ETag returns 200 with new ETag
     new_stub = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20).decode("ascii")
-    web_module.mapper.upsert_image("etag1", new_stub)
-    resp3 = client.get("/mappings/etag1/image", headers={"If-None-Match": etag})
+    web_module.mapper.upsert_image(id_, new_stub)
+    resp3 = client.get(f"/mappings/{id_}/image", headers={"If-None-Match": etag})
     assert resp3.status_code == 200
     assert resp3.headers["ETag"] != etag
 
@@ -562,9 +584,10 @@ def test_get_image_detects_png(client: FlaskClient) -> None:
 
     client.post("/mappings", data={"tag_uid": "png1", "media_uri": "uri_e"})
     import tontraeger_server.web as web_module
-    web_module.mapper.upsert_image("png1", b64)
+    id_ = _get_mapping_id(client)
+    web_module.mapper.upsert_image(id_, b64)
 
-    resp = client.get("/mappings/png1/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/png"
 
@@ -665,11 +688,12 @@ def test_media_metadata_oembed_missing_title_returns_null(client: FlaskClient) -
 
 def test_edit_form_get(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "e1", "media_uri": "uri_a", "name": "Alpha", "shuffle": "on"})
+    id_ = _get_mapping_id(client)
 
-    resp = client.get("/mappings/e1/edit-form")
+    resp = client.get(f"/mappings/{id_}/edit-form")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert 'id="card-e1"' in html
+    assert f'id="card-{id_}"' in html
     assert 'value="Alpha"' in html
     assert 'value="uri_a"' in html
     assert "checked" in html
@@ -680,39 +704,41 @@ def test_edit_form_get(client: FlaskClient) -> None:
 
 
 def test_edit_form_get_nonexistent(client: FlaskClient) -> None:
-    resp = client.get("/mappings/no-such/edit-form")
+    resp = client.get("/mappings/99999/edit-form")
     assert resp.status_code == 404
 
 
 def test_card_get(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "c1", "media_uri": "uri_c", "name": "CardTest"})
+    id_ = _get_mapping_id(client)
 
-    resp = client.get("/mappings/c1/card")
+    resp = client.get(f"/mappings/{id_}/card")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert 'id="card-c1"' in html
+    assert f'id="card-{id_}"' in html
     assert "CardTest" in html
     assert "Edit" in html
 
 
 def test_card_get_nonexistent(client: FlaskClient) -> None:
-    resp = client.get("/mappings/no-such/card")
+    resp = client.get("/mappings/99999/card")
     assert resp.status_code == 404
 
 
 def test_edit_mapping(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "ed1", "media_uri": "old_uri", "name": "Old Name"})
+    id_ = _get_mapping_id(client)
 
     resp = client.post(
-        "/mappings/ed1/edit",
-        data={"name": "New Name", "media_uri": "new_uri", "shuffle": "on"},
+        f"/mappings/{id_}/edit",
+        data={"tag_uid": "ed1", "name": "New Name", "media_uri": "new_uri", "shuffle": "on"},
         headers=HX_HEADERS,
     )
     assert resp.status_code == 200
     html = resp.data.decode()
     assert "New Name" in html
     assert "new_uri" in html
-    assert 'id="card-ed1"' in html
+    assert f'id="card-{id_}"' in html
     # Should be back in view mode (has Edit button, not Save)
     assert "Edit" in html
 
@@ -726,9 +752,10 @@ def test_edit_mapping(client: FlaskClient) -> None:
 
 def test_edit_mapping_empty_uri(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "ed2", "media_uri": "valid_uri", "name": "Test"})
+    id_ = _get_mapping_id(client)
 
     resp = client.post(
-        "/mappings/ed2/edit",
+        f"/mappings/{id_}/edit",
         data={"name": "Test", "media_uri": "", "shuffle": ""},
         headers=HX_HEADERS,
     )
@@ -745,7 +772,7 @@ def test_edit_mapping_empty_uri(client: FlaskClient) -> None:
 
 def test_edit_mapping_nonexistent(client: FlaskClient) -> None:
     resp = client.post(
-        "/mappings/no-such/edit",
+        "/mappings/99999/edit",
         data={"name": "x", "media_uri": "y"},
         headers=HX_HEADERS,
     )
@@ -758,38 +785,41 @@ def test_edit_mapping_preserves_image(client: FlaskClient) -> None:
 
     jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
     client.post("/mappings", data={"tag_uid": "ed3", "media_uri": "old_uri", "name": "Img Test"})
-    web_module.mapper.upsert_image("ed3", jpeg_stub)
+    id_ = _get_mapping_id(client)
+    web_module.mapper.upsert_image(id_, jpeg_stub)
 
     # Edit the mapping
     client.post(
-        "/mappings/ed3/edit",
-        data={"name": "Updated", "media_uri": "new_uri"},
+        f"/mappings/{id_}/edit",
+        data={"tag_uid": "ed3", "name": "Updated", "media_uri": "new_uri"},
         headers=HX_HEADERS,
     )
 
     # Image should still be there
-    resp = client.get("/mappings/ed3/image")
+    resp = client.get(f"/mappings/{id_}/image")
     assert resp.status_code == 200
     assert resp.content_type == "image/jpeg"
 
 
-def test_edit_form_colon_uid_css_safe(client: FlaskClient) -> None:
-    """Edit form for tag UIDs with colons uses CSS-safe IDs."""
+def test_edit_form_uses_integer_id_not_uid(client: FlaskClient) -> None:
+    """Edit form uses integer-based IDs, not tag UID."""
     client.post("/mappings", data={"tag_uid": "04:ab:cd", "media_uri": "uri"})
+    id_ = _get_mapping_id(client)
 
-    resp = client.get("/mappings/04:ab:cd/edit-form")
+    resp = client.get(f"/mappings/{id_}/edit-form")
     assert resp.status_code == 200
     html = resp.data.decode()
-    assert 'id="card-04-ab-cd"' in html
-    assert 'id="thumb-04-ab-cd"' in html
+    assert f'id="card-{id_}"' in html
+    assert f'id="thumb-{id_}"' in html
 
 
 def test_index_shows_edit_button(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "idx1", "media_uri": "uri_a", "name": "Test"})
+    id_ = _get_mapping_id(client)
     resp = client.get("/")
     html = resp.data.decode()
     assert "Edit" in html
-    assert 'id="card-idx1"' in html
+    assert f'id="card-{id_}"' in html
     # Should NOT have the delete button in view mode
     assert "Delete mapping" not in html
 
@@ -804,23 +834,26 @@ def test_print_view_renders_cards(client: FlaskClient) -> None:
 
     client.post("/mappings", data={"tag_uid": "p1", "media_uri": "uri_a"})
     client.post("/mappings", data={"tag_uid": "p2", "media_uri": "uri_b"})
-    web_module.mapper.upsert_image("p1", jpeg_stub)
-    web_module.mapper.upsert_image("p2", jpeg_stub)
+    mappings = web_module.mapper.get_all_mappings()
+    id1, id2 = mappings[0][0], mappings[1][0]
+    web_module.mapper.upsert_image(id1, jpeg_stub)
+    web_module.mapper.upsert_image(id2, jpeg_stub)
 
-    resp = client.get("/print?tag_uid=p1&tag_uid=p2")
+    resp = client.get(f"/print?id={id1}&id={id2}")
     assert resp.status_code == 200
-    assert b"/mappings/p1/image" in resp.data
-    assert b"/mappings/p2/image" in resp.data
+    assert f"/mappings/{id1}/image".encode() in resp.data
+    assert f"/mappings/{id2}/image".encode() in resp.data
     assert b"59mm" in resp.data
     assert b"card-outline" in resp.data
 
 
 def test_print_view_skips_missing_images(client: FlaskClient) -> None:
     client.post("/mappings", data={"tag_uid": "noart", "media_uri": "uri_c"})
+    id_ = _get_mapping_id(client)
 
-    resp = client.get("/print?tag_uid=noart")
+    resp = client.get(f"/print?id={id_}")
     assert resp.status_code == 200
-    assert b"/mappings/noart/image" not in resp.data
+    assert f"/mappings/{id_}/image".encode() not in resp.data
 
 
 def test_print_view_empty_selection(client: FlaskClient) -> None:
@@ -829,7 +862,172 @@ def test_print_view_empty_selection(client: FlaskClient) -> None:
     assert b"100%" in resp.data
 
 
-def test_print_view_ignores_nonexistent_uids(client: FlaskClient) -> None:
-    resp = client.get("/print?tag_uid=fake1&tag_uid=fake2")
+def test_print_view_ignores_nonexistent_ids(client: FlaskClient) -> None:
+    resp = client.get("/print?id=99998&id=99999")
     assert resp.status_code == 200
-    assert b"/mappings/fake1/image" not in resp.data
+    assert b"/mappings/99998/image" not in resp.data
+
+
+# ── New behavior: surrogate PKs + tap-to-assign ───────
+
+
+def test_add_mapping_without_uid(client: FlaskClient) -> None:
+    resp = client.post("/mappings", data={"media_uri": "https://example.com", "name": "No Tag Yet"})
+    assert resp.status_code == 302
+
+    resp = client.get("/")
+    assert b"No Tag Yet" in resp.data
+    assert b"No tag" in resp.data  # unassigned indicator
+
+
+def test_add_mapping_with_uid_uses_integer_id_in_routes(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "aa:bb", "media_uri": "uri_a", "name": "Alpha"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/card")
+    assert resp.status_code == 200
+    assert b"Alpha" in resp.data
+    # Card id is based on integer, not tag_uid
+    assert f'id="card-{id_}"'.encode() in resp.data
+
+
+def test_edit_form_uses_integer_id(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "aa:bb", "media_uri": "uri_a", "name": "Alpha"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/edit-form")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert f'id="card-{id_}"' in html
+    assert "Save" in html
+
+
+def test_edit_mapping_changes_uid(client: FlaskClient) -> None:
+    client.post("/mappings", data={"media_uri": "uri_a", "name": "Alpha"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.post(
+        f"/mappings/{id_}/edit",
+        data={"name": "Alpha", "media_uri": "uri_a", "tag_uid": "04:ab:cd"},
+        headers=HX_HEADERS,
+    )
+    assert resp.status_code == 200
+
+    resp = client.get("/api/mappings")
+    assert len(resp.json["mappings"]) == 1
+    assert resp.json["mappings"][0]["tag_uid"] == "04:ab:cd"
+
+
+def test_edit_mapping_clears_uid(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "aa:bb", "media_uri": "uri_a", "name": "Alpha"})
+    id_ = _get_mapping_id(client)
+
+    client.post(
+        f"/mappings/{id_}/edit",
+        data={"name": "Alpha", "media_uri": "uri_a", "tag_uid": ""},
+        headers=HX_HEADERS,
+    )
+
+    resp = client.get("/api/mappings")
+    assert resp.json["mappings"] == []  # now unassigned, excluded from API
+
+
+def test_edit_mapping_duplicate_uid_error(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "uid1", "media_uri": "uri_a"})
+    client.post("/mappings", data={"media_uri": "uri_b"})
+    id2 = _get_mapping_id(client, index=1)
+
+    resp = client.post(
+        f"/mappings/{id2}/edit",
+        data={"name": "", "media_uri": "uri_b", "tag_uid": "uid1"},
+        headers=HX_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert b"already assigned" in resp.data
+    assert b"card-editing" in resp.data  # stayed in edit mode
+
+
+def test_card_view_unassigned_shows_indicator(client: FlaskClient) -> None:
+    client.post("/mappings", data={"media_uri": "uri_a", "name": "Pending"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/card")
+    assert resp.status_code == 200
+    assert b"No tag" in resp.data
+
+
+def test_delete_mapping_by_id(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "del1", "media_uri": "some_uri"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.post(f"/mappings/{id_}/delete")
+    assert resp.status_code == 302
+
+    resp = client.get("/")
+    assert b"some_uri" not in resp.data
+
+
+def test_print_uses_integer_id_params(client: FlaskClient) -> None:
+    import base64
+    import tontraeger_server.web as web_module
+
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+    client.post("/mappings", data={"tag_uid": "p1", "media_uri": "uri_a"})
+    client.post("/mappings", data={"tag_uid": "p2", "media_uri": "uri_b"})
+    mappings = web_module.mapper.get_all_mappings()
+    id1, id2 = mappings[0][0], mappings[1][0]
+    web_module.mapper.upsert_image(id1, jpeg_stub)
+    web_module.mapper.upsert_image(id2, jpeg_stub)
+
+    resp = client.get(f"/print?id={id1}&id={id2}")
+    assert resp.status_code == 200
+    assert f"/mappings/{id1}/image".encode() in resp.data
+    assert f"/mappings/{id2}/image".encode() in resp.data
+
+
+def test_api_mappings_excludes_unassigned(client: FlaskClient) -> None:
+    client.post("/mappings", data={"media_uri": "uri_a", "name": "No Tag"})
+    client.post("/mappings", data={"tag_uid": "has-uid", "media_uri": "uri_b", "name": "Has Tag"})
+
+    resp = client.get("/api/mappings")
+    assert resp.status_code == 200
+    assert len(resp.json["mappings"]) == 1
+    assert resp.json["mappings"][0]["tag_uid"] == "has-uid"
+
+
+def test_api_mappings_etag_stable_on_unassigned_change(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "uid1", "media_uri": "uri_a"})
+    etag1 = client.get("/api/mappings").headers["ETag"]
+
+    # Add an unassigned mapping — should not change the ETag
+    client.post("/mappings", data={"media_uri": "uri_b"})
+    etag2 = client.get("/api/mappings").headers["ETag"]
+
+    assert etag1 == etag2
+
+
+def test_api_mappings_response_has_no_id_field(client: FlaskClient) -> None:
+    client.post("/mappings", data={"tag_uid": "aaa", "media_uri": "uri_a"})
+    resp = client.get("/api/mappings")
+    assert resp.status_code == 200
+    mapping = resp.json["mappings"][0]
+    assert "id" not in mapping
+    assert set(mapping.keys()) == {"tag_uid", "media_uri", "name", "shuffle", "has_image"}
+
+
+def test_pending_tag_no_result(client: FlaskClient) -> None:
+    resp = client.get("/api/pending-tag?since=2099-01-01T00:00:00.000Z")
+    assert resp.status_code == 204
+
+
+def test_pending_tag_missing_since(client: FlaskClient) -> None:
+    resp = client.get("/api/pending-tag")
+    assert resp.status_code == 400
+
+
+def test_pending_tag_returns_uid(client: FlaskClient) -> None:
+    since = "2000-01-01T00:00:00.000000+00:00"
+    client.post("/api/unknown-tags", json={"tag_uid": "04:ab:cd"})
+    resp = client.get(f"/api/pending-tag?since={since}")
+    assert resp.status_code == 200
+    assert resp.json["tag_uid"] == "04:ab:cd"
