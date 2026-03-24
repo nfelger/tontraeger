@@ -30,7 +30,8 @@ Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/un
 
 - Spotify share links (`https://`) go through SoCo's `ShareLinkPlugin`; all other URIs use `add_uri_to_queue`.
 
-## UI Principles
+## Rules & Principles
 
 - **Prefer htmx for server-driven interactions** (data fetching, rendering lists, polling, state transitions). Use htmx server-rendered HTML fragments + swaps as the default for all UI interactions.
 - **Use Alpine.js where it's genuinely simpler** than htmx — e.g., client-side DOM manipulation (setting input values), UI mode toggles, multi-state buttons, or reactive state that doesn't need a server round-trip. Alpine.js is a complement to htmx, not a last resort.
+- **Use red/green TDD** for new features and bug fixes.
