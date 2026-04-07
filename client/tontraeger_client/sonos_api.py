@@ -43,6 +43,10 @@ class SonosAPI:
         else:
             coordinator.add_uri_to_queue(uri)
         coordinator.play_from_queue(0)
+        # play_from_queue internally calls play(), but Sonos can discard it when the
+        # device is in TRANSITIONING state (e.g. after clearing the queue mid-play).
+        # An explicit play() is a no-op if already playing and fixes the race.
+        coordinator.play()
 
     async def discover(self) -> None:
         """Keep searching for the speaker until found. Retries every 5s."""

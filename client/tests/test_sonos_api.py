@@ -23,9 +23,11 @@ class FakeSoCo:
         self.player_name = player_name
         self.queue: list[str] = []
         self.playing_from: int | None = None
+        self.playing = False
         self.paused = False
         self.share_links: list[str] = []
         self.play_mode: str = ""
+        self.call_order: list[str] = []
         self.group = _FakeGroup(self)
 
     def clear_queue(self) -> None:
@@ -37,6 +39,11 @@ class FakeSoCo:
 
     def play_from_queue(self, index: int) -> None:
         self.playing_from = index
+        self.call_order.append("play_from_queue")
+
+    def play(self) -> None:
+        self.playing = True
+        self.call_order.append("play")
 
     def pause(self) -> None:
         self.paused = True
@@ -82,6 +89,7 @@ class FakeSonosAPI(SonosAPI):
         else:
             speaker.add_uri_to_queue(uri)
         speaker.play_from_queue(0)
+        speaker.play()
 
 
 # ── Constructor ──────────────────────────────────────────
@@ -193,6 +201,30 @@ async def test_play_uri_sets_normal_mode() -> None:
     await api.play_uri("x-sonosapi-radio:s123", shuffle=False)
 
     assert fake.play_mode == "NORMAL"
+
+
+@pytest.mark.asyncio
+async def test_do_play_calls_play_explicitly() -> None:
+    """_do_play must call coordinator.play() after play_from_queue to ensure playback starts."""
+    fake = FakeSoCo()
+    api = SonosAPI("Living Room")
+    api._speaker = fake  # type: ignore[assignment]
+
+    await api.play_uri("x-sonosapi-radio:s123")
+
+    assert fake.playing is True
+
+
+@pytest.mark.asyncio
+async def test_do_play_play_called_after_queue() -> None:
+    """coordinator.play() must come after play_from_queue(0), not before."""
+    fake = FakeSoCo()
+    api = SonosAPI("Living Room")
+    api._speaker = fake  # type: ignore[assignment]
+
+    await api.play_uri("x-sonosapi-radio:s123")
+
+    assert fake.call_order == ["play_from_queue", "play"]
 
 
 @pytest.mark.asyncio
