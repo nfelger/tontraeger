@@ -51,7 +51,10 @@ class PlaybackController:
         shuffle = self.cache.get_shuffle(tag_uid)
         logger.info("Playing %s (%s)%s", name, uri, " [shuffle]" if shuffle else "")
         await self.sonos_api.play_uri(uri, shuffle=shuffle)
-        self._playing_tag = tag_uid  # only set on success
+        # Only set on success. If play_uri raises, _playing_tag keeps its previous
+        # value — a re-PRESENT for the same tag while it's already playing leaves
+        # _playing_tag unchanged, so the following REMOVED still stops playback.
+        self._playing_tag = tag_uid
 
     async def handle_removed(self, tag_uid: str) -> None:
         """A tag was removed from the reader. Pause playback if it was the playing tag."""

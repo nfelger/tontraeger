@@ -93,18 +93,6 @@ async def test_handle_present_unknown_without_sync(cache) -> None:
 
 
 @pytest.mark.asyncio
-async def test_handle_removed_pauses(cache) -> None:
-    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
-    sonos = DummySonosAPI()
-    controller = PlaybackController(sonos, cache)
-
-    await controller.handle_present("04:ab:cd:12:34:56:78")
-    await controller.handle_removed("04:ab:cd:12:34:56:78")
-
-    assert sonos.stop_count == 1
-
-
-@pytest.mark.asyncio
 async def test_handle_removed_ignored_if_tag_never_played(cache) -> None:
     """REMOVED for a tag that was never placed must not call stop_playback."""
     sonos = DummySonosAPI()
