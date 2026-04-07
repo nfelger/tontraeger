@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from tontraeger_client.sonos_api import SonosAPI
@@ -21,20 +23,28 @@ class FakeSoCo:
         self.player_name = player_name
         self.queue: list[str] = []
         self.playing_from: int | None = None
+        self.playing = False
         self.paused = False
         self.share_links: list[str] = []
         self.play_mode: str = ""
+        self.call_order: list[str] = []
         self.group = _FakeGroup(self)
 
     def clear_queue(self) -> None:
         self.queue.clear()
         self.share_links.clear()
+        self.call_order.clear()
 
     def add_uri_to_queue(self, uri: str) -> None:
         self.queue.append(uri)
 
     def play_from_queue(self, index: int) -> None:
         self.playing_from = index
+        self.call_order.append("play_from_queue")
+
+    def play(self) -> None:
+        self.playing = True
+        self.call_order.append("play")
 
     def pause(self) -> None:
         self.paused = True
@@ -80,6 +90,7 @@ class FakeSonosAPI(SonosAPI):
         else:
             speaker.add_uri_to_queue(uri)
         speaker.play_from_queue(0)
+        speaker.play()
 
 
 # ── Constructor ──────────────────────────────────────────
@@ -194,6 +205,18 @@ async def test_play_uri_sets_normal_mode() -> None:
 
 
 @pytest.mark.asyncio
+async def test_do_play_play_called_after_queue() -> None:
+    """coordinator.play() must come after play_from_queue(0), not before."""
+    fake = FakeSoCo()
+    api = SonosAPI("Living Room")
+    api._speaker = fake  # type: ignore[assignment]
+
+    await api.play_uri("x-sonosapi-radio:s123")
+
+    assert fake.call_order == ["play_from_queue", "play"]
+
+
+@pytest.mark.asyncio
 async def test_play_error_clears_speaker() -> None:
     fake = FakeSoCo()
     api = FakeSonosAPI(fake_speaker=fake)
@@ -207,6 +230,73 @@ async def test_play_error_clears_speaker() -> None:
         await api.play_uri("x-sonosapi-radio:test")
 
     assert api._speaker is None
+
+
+@pytest.mark.asyncio
+async def test_play_uri_failure_schedules_rediscovery() -> None:
+    """After play_uri fails, a background discover() task must run to restore _speaker."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    api._speaker = fake  # type: ignore[assignment]
+
+    def exploding_play(uri: str, shuffle: bool = False) -> None:
+        raise RuntimeError("Sonos unreachable")
+
+    api._do_play = exploding_play  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="Sonos unreachable"):
+        await api.play_uri("x-sonosapi-radio:test")
+
+    assert api._speaker is None  # correctly cleared during failure
+
+    assert api._pending_discover is not None
+    await api._pending_discover
+    assert api._speaker is fake  # restored by background discover()
+
+
+@pytest.mark.asyncio
+async def test_play_uri_second_failure_cancels_first_rediscovery() -> None:
+    """A second play_uri failure must cancel the in-flight rediscovery before starting a new one."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    api._speaker = fake  # type: ignore[assignment]
+
+    # Gate that blocks the background discover() so it stays in-flight.
+    gate = asyncio.Event()
+
+    def exploding_play(uri: str, shuffle: bool = False) -> None:
+        raise RuntimeError("Sonos unreachable")
+
+    async def blocked_discover() -> None:
+        """discover() that waits for the gate before doing anything."""
+        await gate.wait()
+
+    api._do_play = exploding_play  # type: ignore[assignment]
+    api.discover = blocked_discover  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError):
+        await api.play_uri("x-sonosapi-radio:test1")
+
+    first_task = api._pending_discover
+    assert first_task is not None
+    assert not first_task.done()  # still in-flight (blocked on gate)
+
+    # Restore _speaker so the second play_uri skips inline discover() and
+    # goes straight to _do_play (which also raises), hitting the cancel path.
+    api._speaker = fake  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError):
+        await api.play_uri("x-sonosapi-radio:test2")
+
+    assert api._pending_discover is not first_task  # new task created
+    # Yield to the event loop so the cancelled coroutine can process CancelledError
+    # and transition from "cancelling" to "cancelled".
+    await asyncio.sleep(0)
+    assert first_task.cancelled()  # old task was cancelled
+
+    # Unblock and clean up the second pending task.
+    gate.set()
+    await api._pending_discover
 
 
 # ── stop_playback() ──────────────────────────────────────
@@ -231,15 +321,16 @@ async def test_stop_no_speaker_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_error_clears_speaker() -> None:
+async def test_stop_error_does_not_clear_speaker() -> None:
+    """A pause failure must NOT clear _speaker — subsequent REMOVED events must still work."""
     fake = FakeSoCo()
     api = FakeSonosAPI(fake_speaker=fake)
 
     def exploding_pause() -> None:
-        raise RuntimeError("Sonos unreachable")
+        raise RuntimeError("Transport error: already stopped")
 
     fake.pause = exploding_pause  # type: ignore[assignment]
 
     await api.stop_playback()
 
-    assert api._speaker is None
+    assert api._speaker is fake  # NOT cleared

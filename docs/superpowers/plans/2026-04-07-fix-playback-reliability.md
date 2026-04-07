@@ -356,6 +356,7 @@ An explicit play() is idempotent when already playing."
 - [ ] REMOVED for the currently-playing tag stops playback
 - [ ] REMOVED for a different tag (while tag A is playing) is ignored
 - [ ] After `play_uri` raises, `_playing_tag` is not set; REMOVED for that tag is a no-op
+- [ ] Three existing tests updated to reflect new semantics (see Step 2)
 - [ ] `make check` passes
 
 **Verify:** `cd client && uv run pytest tests/test_control.py -v` → all tests green
@@ -383,9 +384,41 @@ class DummySonosAPI:
         self.stop_count += 1
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 2: Write the failing tests and update conflicting existing tests**
 
-In `client/tests/test_control.py`, add:
+The new semantics directly contradict three existing tests. Update them **before** implementing, so the full green/red picture is clear:
+
+**Delete `test_handle_removed_without_prior_present`** — its assertion (`assert sonos.stopped`) is the inverse of the new expected behaviour; `test_handle_removed_ignored_if_tag_never_played` below replaces it.
+
+**Replace `test_handle_removed_pauses`** with a version that first places the tag:
+
+```python
+@pytest.mark.asyncio
+async def test_handle_removed_pauses(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_present("04:ab:cd:12:34:56:78")
+    await controller.handle_removed("04:ab:cd:12:34:56:78")
+
+    assert sonos.stop_count == 1
+```
+
+**Replace `test_nfc_reader_dispatches_removed`** (in the `# ── nfc_reader ───` section) with a version that sends PRESENT before REMOVED:
+
+```python
+@pytest.mark.asyncio
+async def test_nfc_reader_dispatches_removed(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    lines = [b"PRESENT 04:ab:cd:12:34:56:78\n", b"REMOVED 04:ab:cd:12:34:56:78\n"]
+
+    _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
+
+    assert sonos.stopped
+```
+
+Now add the four new tests at the end of the `# ── handle_removed ───` section:
 
 ```python
 @pytest.mark.asyncio
@@ -447,10 +480,16 @@ async def test_handle_removed_ignored_after_failed_play(cache) -> None:
     assert sonos.stop_count == 0
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [ ] **Step 3: Run tests to verify the new ones fail**
 
-Run: `cd client && uv run pytest tests/test_control.py::test_handle_removed_ignored_if_tag_never_played tests/test_control.py::test_handle_removed_ignored_for_different_tag -v`
-Expected: FAIL
+Run: `cd client && uv run pytest tests/test_control.py -v`
+Expected:
+- `test_handle_removed_ignored_if_tag_never_played` — FAIL (`stop_count` is 1, not 0: current code always stops)
+- `test_handle_removed_ignored_for_different_tag` — FAIL (same reason)
+- `test_handle_removed_ignored_after_failed_play` — FAIL (same reason)
+- `test_handle_removed_pauses` (updated) — PASS (current code stops unconditionally, so present+remove still stops)
+- `test_nfc_reader_dispatches_removed` (updated) — PASS (same reason)
+- All other existing tests — PASS
 
 - [ ] **Step 4: Write minimal implementation**
 

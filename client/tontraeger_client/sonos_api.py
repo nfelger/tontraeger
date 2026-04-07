@@ -13,6 +13,7 @@ class SonosAPI:
         """Initialize with target speaker name. Discovery happens lazily."""
         self.speaker_name = speaker_name
         self._speaker: SoCo | None = None
+        self._pending_discover: asyncio.Task[None] | None = None
 
     def _find_speaker(self) -> SoCo:
         """Search the network for the speaker. Raises if not found."""
@@ -42,6 +43,10 @@ class SonosAPI:
         else:
             coordinator.add_uri_to_queue(uri)
         coordinator.play_from_queue(0)
+        # play_from_queue internally calls play(), but Sonos can discard it when the
+        # device is in TRANSITIONING state (e.g. after clearing the queue mid-play).
+        # An explicit play() is a no-op if already playing and fixes the race.
+        coordinator.play()
 
     async def discover(self) -> None:
         """Keep searching for the speaker until found. Retries every 5s."""
@@ -68,6 +73,12 @@ class SonosAPI:
         except Exception as e:
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None
+            # Immediately kick off rediscovery so stop_playback() remains functional
+            # for any REMOVED event that arrives before the next PRESENT.
+            # Store reference to prevent GC before the task completes.
+            if self._pending_discover and not self._pending_discover.done():
+                self._pending_discover.cancel()
+            self._pending_discover = asyncio.create_task(self.discover())
             raise
 
     async def stop_playback(self) -> None:
@@ -80,5 +91,7 @@ class SonosAPI:
             coordinator = self._speaker.group.coordinator
             await loop.run_in_executor(None, coordinator.pause)
         except Exception as e:
-            logger.error("stop_playback failed: %s — clearing speaker for rediscovery", e)
-            self._speaker = None
+            logger.error("stop_playback failed: %s", e)
+            # Do NOT clear _speaker. A transport error (already stopped, transitioning)
+            # does not mean the speaker is unreachable. Clearing it here causes the next
+            # REMOVED event to silently short-circuit on `if self._speaker is None: return`.
