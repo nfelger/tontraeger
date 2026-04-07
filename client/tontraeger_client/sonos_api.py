@@ -72,6 +72,8 @@ class SonosAPI:
             # Immediately kick off rediscovery so stop_playback() remains functional
             # for any REMOVED event that arrives before the next PRESENT.
             # Store reference to prevent GC before the task completes.
+            if self._pending_discover and not self._pending_discover.done():
+                self._pending_discover.cancel()
             self._pending_discover = asyncio.create_task(self.discover())
             raise
 

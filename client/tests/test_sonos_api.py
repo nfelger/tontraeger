@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from tontraeger_client.sonos_api import SonosAPI
@@ -226,13 +228,54 @@ async def test_play_uri_failure_schedules_rediscovery() -> None:
 
     assert api._speaker is None  # correctly cleared during failure
 
-    # Wait for the background rediscovery task to complete
-    import asyncio
-    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
-
+    assert api._pending_discover is not None
+    await api._pending_discover
     assert api._speaker is fake  # restored by background discover()
+
+
+@pytest.mark.asyncio
+async def test_play_uri_second_failure_cancels_first_rediscovery() -> None:
+    """A second play_uri failure must cancel the in-flight rediscovery before starting a new one."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    api._speaker = fake  # type: ignore[assignment]
+
+    # Gate that blocks the background discover() so it stays in-flight.
+    gate = asyncio.Event()
+
+    def exploding_play(uri: str, shuffle: bool = False) -> None:
+        raise RuntimeError("Sonos unreachable")
+
+    async def blocked_discover() -> None:
+        """discover() that waits for the gate before doing anything."""
+        await gate.wait()
+
+    api._do_play = exploding_play  # type: ignore[assignment]
+    api.discover = blocked_discover  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError):
+        await api.play_uri("x-sonosapi-radio:test1")
+
+    first_task = api._pending_discover
+    assert first_task is not None
+    assert not first_task.done()  # still in-flight (blocked on gate)
+
+    # Restore _speaker so the second play_uri skips inline discover() and
+    # goes straight to _do_play (which also raises), hitting the cancel path.
+    api._speaker = fake  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError):
+        await api.play_uri("x-sonosapi-radio:test2")
+
+    assert api._pending_discover is not first_task  # new task created
+    # Yield to the event loop so the cancelled coroutine can process CancelledError
+    # and transition from "cancelling" to "cancelled".
+    await asyncio.sleep(0)
+    assert first_task.cancelled()  # old task was cancelled
+
+    # Unblock and clean up the second pending task.
+    gate.set()
+    await api._pending_discover
 
 
 # ── stop_playback() ──────────────────────────────────────
