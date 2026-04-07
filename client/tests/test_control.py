@@ -11,6 +11,7 @@ class DummySonosAPI:
         self.played_uri: str | None = None
         self.played_shuffle: bool = False
         self.stopped: bool = False
+        self.stop_count: int = 0
 
     async def play_uri(self, uri: str, shuffle: bool = False) -> None:
         self.played_uri = uri
@@ -18,6 +19,7 @@ class DummySonosAPI:
 
     async def stop_playback(self) -> None:
         self.stopped = True
+        self.stop_count += 1
 
 
 class DummySync:
@@ -92,24 +94,73 @@ async def test_handle_present_unknown_without_sync(cache) -> None:
 
 @pytest.mark.asyncio
 async def test_handle_removed_pauses(cache) -> None:
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
     sonos = DummySonosAPI()
     controller = PlaybackController(sonos, cache)
 
+    await controller.handle_present("04:ab:cd:12:34:56:78")
     await controller.handle_removed("04:ab:cd:12:34:56:78")
 
-    assert sonos.stopped
+    assert sonos.stop_count == 1
 
 
 @pytest.mark.asyncio
-async def test_handle_removed_without_prior_present(cache) -> None:
-    """Removing a tag that was never placed doesn't crash."""
+async def test_handle_removed_ignored_if_tag_never_played(cache) -> None:
+    """REMOVED for a tag that was never placed must not call stop_playback."""
     sonos = DummySonosAPI()
     controller = PlaybackController(sonos, cache)
 
     await controller.handle_removed("04:ab:cd:12:34:56:78")
 
-    # stop_playback is a no-op when no speaker is known — but it was still called
-    assert sonos.stopped
+    assert sonos.stop_count == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_removed_stops_currently_playing_tag(cache) -> None:
+    """REMOVED for the tag that is currently playing must call stop_playback."""
+    cache.update([{"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_present("04:aa:aa:aa:aa:aa:aa")
+    await controller.handle_removed("04:aa:aa:aa:aa:aa:aa")
+
+    assert sonos.stop_count == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_removed_ignored_for_different_tag(cache) -> None:
+    """REMOVED for a tag other than the one currently playing must be ignored."""
+    cache.update([{"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    sonos = DummySonosAPI()
+    controller = PlaybackController(sonos, cache)
+
+    await controller.handle_present("04:aa:aa:aa:aa:aa:aa")
+    await controller.handle_removed("04:bb:bb:bb:bb:bb:bb")  # different tag
+
+    assert sonos.stop_count == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_removed_ignored_after_failed_play(cache) -> None:
+    """REMOVED for a tag whose play_uri raised must not call stop_playback."""
+    cache.update([{"tag_uid": "04:aa:aa:aa:aa:aa:aa", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    sonos = DummySonosAPI()
+
+    async def failing_play(uri: str, shuffle: bool = False) -> None:
+        raise RuntimeError("Sonos unreachable")
+
+    sonos.play_uri = failing_play  # type: ignore[assignment]
+    controller = PlaybackController(sonos, cache)
+
+    try:
+        await controller.handle_present("04:aa:aa:aa:aa:aa:aa")
+    except Exception:
+        pass
+
+    await controller.handle_removed("04:aa:aa:aa:aa:aa:aa")
+
+    assert sonos.stop_count == 0
 
 
 # ── nfc_reader ───────────────────────────────────────────
@@ -210,7 +261,8 @@ async def test_nfc_reader_dispatches_present(cache) -> None:
 
 @pytest.mark.asyncio
 async def test_nfc_reader_dispatches_removed(cache) -> None:
-    lines = [b"REMOVED 04:ab:cd:12:34:56:78\n"]
+    cache.update([{"tag_uid": "04:ab:cd:12:34:56:78", "media_uri": "x-radio:test", "name": "", "shuffle": False}])
+    lines = [b"PRESENT 04:ab:cd:12:34:56:78\n", b"REMOVED 04:ab:cd:12:34:56:78\n"]
 
     _, sonos, _ = await _run_nfc_reader_with_fake_daemon(cache, lines)
 

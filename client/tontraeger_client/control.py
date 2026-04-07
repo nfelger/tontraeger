@@ -35,6 +35,7 @@ class PlaybackController:
         self.cache = cache
         self.sync = sync
         self._pending_report: asyncio.Task[None] | None = None
+        self._playing_tag: str | None = None
 
     async def handle_present(self, tag_uid: str) -> None:
         """A tag was placed on the reader. Play its music, or report it as unknown."""
@@ -50,11 +51,16 @@ class PlaybackController:
         shuffle = self.cache.get_shuffle(tag_uid)
         logger.info("Playing %s (%s)%s", name, uri, " [shuffle]" if shuffle else "")
         await self.sonos_api.play_uri(uri, shuffle=shuffle)
+        self._playing_tag = tag_uid  # only set on success
 
     async def handle_removed(self, tag_uid: str) -> None:
-        """A tag was removed from the reader. Pause playback."""
+        """A tag was removed from the reader. Pause playback if it was the playing tag."""
+        if self._playing_tag != tag_uid:
+            logger.debug("Ignoring REMOVED for %s (currently playing: %s)", tag_uid, self._playing_tag)
+            return
         name = self.cache.get_name(tag_uid) or tag_uid
         logger.info("Pausing (%s removed)", name)
+        self._playing_tag = None
         await self.sonos_api.stop_playback()
 
 
