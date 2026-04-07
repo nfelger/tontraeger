@@ -13,6 +13,7 @@ class SonosAPI:
         """Initialize with target speaker name. Discovery happens lazily."""
         self.speaker_name = speaker_name
         self._speaker: SoCo | None = None
+        self._pending_discover: asyncio.Task[None] | None = None
 
     def _find_speaker(self) -> SoCo:
         """Search the network for the speaker. Raises if not found."""
@@ -68,6 +69,10 @@ class SonosAPI:
         except Exception as e:
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None
+            # Immediately kick off rediscovery so stop_playback() remains functional
+            # for any REMOVED event that arrives before the next PRESENT.
+            # Store reference to prevent GC before the task completes.
+            self._pending_discover = asyncio.create_task(self.discover())
             raise
 
     async def stop_playback(self) -> None:

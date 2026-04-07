@@ -209,6 +209,32 @@ async def test_play_error_clears_speaker() -> None:
     assert api._speaker is None
 
 
+@pytest.mark.asyncio
+async def test_play_uri_failure_schedules_rediscovery() -> None:
+    """After play_uri fails, a background discover() task must run to restore _speaker."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    api._speaker = fake  # type: ignore[assignment]
+
+    def exploding_play(uri: str, shuffle: bool = False) -> None:
+        raise RuntimeError("Sonos unreachable")
+
+    api._do_play = exploding_play  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="Sonos unreachable"):
+        await api.play_uri("x-sonosapi-radio:test")
+
+    assert api._speaker is None  # correctly cleared during failure
+
+    # Wait for the background rediscovery task to complete
+    import asyncio
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    assert api._speaker is fake  # restored by background discover()
+
+
 # ── stop_playback() ──────────────────────────────────────
 
 
