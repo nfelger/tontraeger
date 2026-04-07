@@ -15,6 +15,10 @@ fi
 # Make uv available for the session
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$CLAUDE_ENV_FILE"
 
+# Initialize git submodules (e.g. .claude/superpowers) so skills are available
+cd "$CLAUDE_PROJECT_DIR"
+git submodule update --init
+
 # Install dependencies for both components
 cd "$CLAUDE_PROJECT_DIR/server"
 uv sync
