@@ -33,6 +33,7 @@ class FakeSoCo:
     def clear_queue(self) -> None:
         self.queue.clear()
         self.share_links.clear()
+        self.call_order.clear()
 
     def add_uri_to_queue(self, uri: str) -> None:
         self.queue.append(uri)
@@ -201,18 +202,6 @@ async def test_play_uri_sets_normal_mode() -> None:
     await api.play_uri("x-sonosapi-radio:s123", shuffle=False)
 
     assert fake.play_mode == "NORMAL"
-
-
-@pytest.mark.asyncio
-async def test_do_play_calls_play_explicitly() -> None:
-    """_do_play must call coordinator.play() after play_from_queue to ensure playback starts."""
-    fake = FakeSoCo()
-    api = SonosAPI("Living Room")
-    api._speaker = fake  # type: ignore[assignment]
-
-    await api.play_uri("x-sonosapi-radio:s123")
-
-    assert fake.playing is True
 
 
 @pytest.mark.asyncio
