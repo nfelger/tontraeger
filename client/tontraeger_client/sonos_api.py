@@ -80,5 +80,7 @@ class SonosAPI:
             coordinator = self._speaker.group.coordinator
             await loop.run_in_executor(None, coordinator.pause)
         except Exception as e:
-            logger.error("stop_playback failed: %s — clearing speaker for rediscovery", e)
-            self._speaker = None
+            logger.error("stop_playback failed: %s", e)
+            # Do NOT clear _speaker. A transport error (already stopped, transitioning)
+            # does not mean the speaker is unreachable. Clearing it here causes the next
+            # REMOVED event to silently short-circuit on `if self._speaker is None: return`.

@@ -231,15 +231,16 @@ async def test_stop_no_speaker_is_noop() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_error_clears_speaker() -> None:
+async def test_stop_error_does_not_clear_speaker() -> None:
+    """A pause failure must NOT clear _speaker — subsequent REMOVED events must still work."""
     fake = FakeSoCo()
     api = FakeSonosAPI(fake_speaker=fake)
 
     def exploding_pause() -> None:
-        raise RuntimeError("Sonos unreachable")
+        raise RuntimeError("Transport error: already stopped")
 
     fake.pause = exploding_pause  # type: ignore[assignment]
 
     await api.stop_playback()
 
-    assert api._speaker is None
+    assert api._speaker is fake  # NOT cleared
