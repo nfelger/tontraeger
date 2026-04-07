@@ -1,0 +1,3 @@
+[submodule ".claude/superpowers"]
+	path = .claude/superpowers
+	url = https://github.com/pcvelz/superpowers.git
