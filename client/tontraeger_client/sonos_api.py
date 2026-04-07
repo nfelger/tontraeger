@@ -42,6 +42,11 @@ class SonosAPI:
         else:
             coordinator.add_uri_to_queue(uri)
         coordinator.play_from_queue(0)
+        # play_from_queue internally calls play(), but Sonos can swallow that
+        # command when the device is in TRANSITIONING state, leaving the queue
+        # loaded but transport paused.  An explicit second play() is harmless
+        # when already playing and fixes the intermittent "doesn't start" case.
+        coordinator.play()
 
     async def discover(self) -> None:
         """Keep searching for the speaker until found. Retries every 5s."""
@@ -68,6 +73,10 @@ class SonosAPI:
         except Exception as e:
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None
+            # Immediately start rediscovery in the background so that a REMOVED
+            # event arriving shortly after a failed play still has a speaker to
+            # call stop_playback on.
+            asyncio.create_task(self.discover())
             raise
 
     async def stop_playback(self) -> None:
@@ -80,5 +89,7 @@ class SonosAPI:
             coordinator = self._speaker.group.coordinator
             await loop.run_in_executor(None, coordinator.pause)
         except Exception as e:
-            logger.error("stop_playback failed: %s — clearing speaker for rediscovery", e)
-            self._speaker = None
+            logger.error("stop_playback failed: %s", e)
+            # Do not clear _speaker — the device is still reachable; only the
+            # transport state was wrong (e.g. already stopped). Clearing it here
+            # would make subsequent stop_playback calls silently do nothing.
