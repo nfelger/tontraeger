@@ -977,6 +977,14 @@ PRINT_TEMPLATE = """
     z-index: 1;
   }
 
+  /* Cutting guides — lines from page edge to grid boundary for
+     trimmer alignment. Extend to the edge so at least 5mm remains
+     visible after the printer clips its unprintable margin. */
+  .cut-guide {
+    position: absolute;
+    background: #aaa;
+  }
+
   .instructions {
     text-align: center;
     padding: 1rem;
@@ -1010,6 +1018,17 @@ PRINT_TEMPLATE = """
       </div>
       {% endfor %}
     </div>
+    {% if page_cards %}
+    {% set n_rows = ((page_cards | length - 1) // 3 + 1) %}
+    {% for col in range(4) %}
+    <div class="cut-guide" style="left:{{ 16.5 + col * 59 }}mm; top:0; width:0.3mm; height:8mm;"></div>
+    <div class="cut-guide" style="left:{{ 16.5 + col * 59 }}mm; top:{{ 8 + n_rows * 59 }}mm; width:0.3mm; bottom:0;"></div>
+    {% endfor %}
+    {% for row in range(n_rows + 1) %}
+    <div class="cut-guide" style="top:{{ 8 + row * 59 }}mm; left:0; height:0.3mm; width:16.5mm;"></div>
+    <div class="cut-guide" style="top:{{ 8 + row * 59 }}mm; right:0; height:0.3mm; width:16.5mm;"></div>
+    {% endfor %}
+    {% endif %}
   </div>
   {% endfor %}
 </body>

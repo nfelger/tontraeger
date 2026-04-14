@@ -862,6 +862,35 @@ def test_print_view_empty_selection(client: FlaskClient) -> None:
     assert b"100%" in resp.data
 
 
+def test_print_view_has_cutting_guides(client: FlaskClient) -> None:
+    import base64
+    import tontraeger_server.web as web_module
+    jpeg_stub = base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 20).decode("ascii")
+
+    # Create 2 cards (1 row of 3 columns)
+    client.post("/mappings", data={"tag_uid": "cg1", "media_uri": "uri_cg1"})
+    client.post("/mappings", data={"tag_uid": "cg2", "media_uri": "uri_cg2"})
+    mappings = web_module.mapper.get_all_mappings()
+    id1, id2 = mappings[0][0], mappings[1][0]
+    web_module.mapper.upsert_image(id1, jpeg_stub)
+    web_module.mapper.upsert_image(id2, jpeg_stub)
+
+    resp = client.get(f"/print?id={id1}&id={id2}")
+    html = resp.data.decode()
+
+    assert "cut-guide" in html
+    # 4 column boundaries × 2 (top + bottom) + 2 row boundaries × 2 (left + right)
+    # = 8 vertical + 4 horizontal = 12 cutting guide elements for 1 row
+    assert html.count("cut-guide") >= 12
+
+
+def test_print_view_no_cutting_guides_when_empty(client: FlaskClient) -> None:
+    resp = client.get("/print")
+    html = resp.data.decode()
+    # No cards → no cutting guides (only the CSS class definition may appear)
+    assert 'class="cut-guide"' not in html
+
+
 def test_print_view_ignores_nonexistent_ids(client: FlaskClient) -> None:
     resp = client.get("/print?id=99998&id=99999")
     assert resp.status_code == 200
