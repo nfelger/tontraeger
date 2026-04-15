@@ -61,7 +61,8 @@ def test_delete_mapping(client: FlaskClient) -> None:
 
     resp = client.get("/")
     assert b"some_uri" not in resp.data
-    assert b'<span class="badge">0</span>' in resp.data
+    assert b'class="badge"' in resp.data
+    assert b">0</span>" in resp.data
 
 
 def test_add_empty_fields_ignored(client: FlaskClient) -> None:
@@ -1005,3 +1006,60 @@ def test_pending_tag_z_suffix_normalized(client: FlaskClient) -> None:
     # With the fix (Z → +00:00), "123456+00:00" > "123+00:00" is True → 200.
     assert resp.status_code == 200
     assert resp.json["tag_uid"] == "04:ab:cd"
+
+
+# ── Filter unassigned ─────────────────────────────────
+
+
+def test_card_view_unassigned_has_data_attribute(client: FlaskClient) -> None:
+    """Card for mapping without tag_uid includes data-unassigned attribute."""
+    client.post("/mappings", data={"media_uri": "uri_a", "name": "No Tag"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/card")
+    assert resp.status_code == 200
+    assert b"data-unassigned" in resp.data
+
+
+def test_card_view_assigned_lacks_data_attribute(client: FlaskClient) -> None:
+    """Card for mapping with tag_uid does NOT include data-unassigned attribute."""
+    client.post("/mappings", data={"tag_uid": "abc", "media_uri": "uri_b", "name": "Has Tag"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/card")
+    assert resp.status_code == 200
+    assert b"data-unassigned" not in resp.data
+
+
+def test_index_includes_filter_counts_in_store(client: FlaskClient) -> None:
+    """Index page embeds totalCount and unassignedCount in Alpine store."""
+    client.post("/mappings", data={"tag_uid": "t1", "media_uri": "uri_1"})
+    client.post("/mappings", data={"tag_uid": "t2", "media_uri": "uri_2"})
+    client.post("/mappings", data={"media_uri": "uri_3", "name": "Pending"})
+
+    resp = client.get("/")
+    html = resp.data.decode()
+    assert "totalCount: 3" in html
+    assert "unassignedCount: 1" in html
+
+
+def test_index_renders_filter_toggle_button(client: FlaskClient) -> None:
+    """Index page contains the unassigned filter toggle button."""
+    client.post("/mappings", data={"tag_uid": "x", "media_uri": "uri"})
+
+    resp = client.get("/")
+    assert b"Show unassigned" in resp.data
+
+
+def test_index_card_list_has_id(client: FlaskClient) -> None:
+    """The card list container has id='card-list' for CSS filter targeting."""
+    client.post("/mappings", data={"tag_uid": "x", "media_uri": "uri"})
+
+    resp = client.get("/")
+    assert b'id="card-list"' in resp.data
+
+
+def test_index_filter_css_rule_present(client: FlaskClient) -> None:
+    """The page includes the CSS rule for hiding non-unassigned cards."""
+    resp = client.get("/")
+    assert b".filter-unassigned" in resp.data

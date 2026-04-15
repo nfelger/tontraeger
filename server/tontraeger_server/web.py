@@ -487,6 +487,9 @@ PAGE_TEMPLATE = """
     cursor: not-allowed;
   }
 
+  /* ── Unassigned filter ─────────────────── */
+  .filter-unassigned .card:not([data-unassigned]) { display: none; }
+
   /* ── Artwork thumbnail + capture ─────────── */
   .card-thumb {
     width: 42px;
@@ -797,11 +800,19 @@ PAGE_TEMPLATE = """
 
   </div>
 
-  <div>
+  <div id="card-list">
   <div class="section-head">
     <h2>Mappings</h2>
-    <span class="badge">{{ mappings|length }}</span>
+    <span class="badge" x-data
+          x-text="$store.filter.unassigned
+            ? $store.filter.unassignedCount + ' of ' + $store.filter.totalCount
+            : $store.filter.totalCount">{{ mappings|length }}</span>
     <div style="margin-left:auto; display:flex; gap:0.4rem;">
+      <button x-data x-show="!$store.filter.unassigned" type="button" class="btn btn-delete"
+              @click="$store.filter.unassigned = true; $el.closest('#card-list').classList.add('filter-unassigned')">Show unassigned</button>
+      <button x-data x-show="$store.filter.unassigned" type="button" class="btn btn-delete"
+              style="color:var(--amber); border-color:var(--amber);"
+              @click="$store.filter.unassigned = false; $el.closest('#card-list').classList.remove('filter-unassigned')">Show all</button>
       <button x-data x-show="!$store.printMode.active" type="button" class="btn btn-save-url"
               @click="$store.printMode.active = true">Print tags</button>
       <template x-data x-if="$store.printMode.active">
@@ -834,6 +845,7 @@ PAGE_TEMPLATE = """
 document.addEventListener('alpine:init', () => {
     Alpine.store('speaker', { selected: '' });
     Alpine.store('printMode', { active: false, selected: new Set() });
+    Alpine.store('filter', { unassigned: false, totalCount: {{ total_count }}, unassignedCount: {{ unassigned_count }} });
 
     Alpine.data('formHelper', () => ({
         get selectedSpeaker() { return Alpine.store('speaker').selected; },
@@ -1054,7 +1066,12 @@ def print_tags() -> str:
 def index() -> str:
     mappings = mapper.get_all_mappings()
     card_htmls = [_card_view_html(*m) for m in mappings]
-    return render_template_string(PAGE_TEMPLATE, mappings=mappings, card_htmls=card_htmls)
+    total_count = len(mappings)
+    unassigned_count = sum(1 for m in mappings if m.tag_uid is None)
+    return render_template_string(
+        PAGE_TEMPLATE, mappings=mappings, card_htmls=card_htmls,
+        total_count=total_count, unassigned_count=unassigned_count,
+    )
 
 
 @app.route("/now-playing")
@@ -1259,7 +1276,9 @@ def _card_view_html(mapping_id: int, tag_uid: str | None, media_uri: str, name: 
 
     edit_url = url_for("edit_form", mapping_id=mapping_id)
 
-    return f"""<div class="card" id="card-{mapping_id}" x-data>
+    unassigned_attr = " data-unassigned" if not tag_uid else ""
+
+    return f"""<div class="card" id="card-{mapping_id}"{unassigned_attr} x-data>
       <template x-if="$store.printMode.active">
         <div class="print-checkbox">
           <input type="checkbox"
