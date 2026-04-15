@@ -1032,15 +1032,24 @@ def test_card_view_assigned_lacks_data_attribute(client: FlaskClient) -> None:
 
 
 def test_index_includes_filter_counts_in_store(client: FlaskClient) -> None:
-    """Index page embeds totalCount and unassignedCount in Alpine store."""
+    """Index page embeds totalCount and unassignedCount on the card-list element.
+
+    Counts must be in x-init on #card-list (not in the alpine:init script)
+    so they update on htmx body swaps when mappings are added/removed.
+    """
     client.post("/mappings", data={"tag_uid": "t1", "media_uri": "uri_1"})
     client.post("/mappings", data={"tag_uid": "t2", "media_uri": "uri_2"})
     client.post("/mappings", data={"media_uri": "uri_3", "name": "Pending"})
 
     resp = client.get("/")
     html = resp.data.decode()
-    assert "totalCount: 3" in html
-    assert "unassignedCount: 1" in html
+    assert "totalCount = 3" in html
+    assert "unassignedCount = 1" in html
+    # Counts must be in x-init on the card-list div (swappable DOM), not in script
+    card_list_start = html.index('id="card-list"')
+    card_list_tag = html[card_list_start : html.index(">", card_list_start)]
+    assert "x-init" in card_list_tag
+    assert "totalCount = 3" in card_list_tag
 
 
 def test_index_renders_filter_toggle_button(client: FlaskClient) -> None:

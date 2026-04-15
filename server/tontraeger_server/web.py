@@ -800,7 +800,10 @@ PAGE_TEMPLATE = """
 
   </div>
 
-  <div id="card-list">
+  <div id="card-list" x-data
+       x-init="$store.filter.totalCount = {{ total_count }}; $store.filter.unassignedCount = {{ unassigned_count }}"
+       x-effect="$store.filter.unassigned ? $el.classList.add('filter-unassigned') : $el.classList.remove('filter-unassigned')"
+  >
   <div class="section-head">
     <h2>Mappings</h2>
     <span class="badge" x-data
@@ -809,10 +812,10 @@ PAGE_TEMPLATE = """
             : $store.filter.totalCount">{{ mappings|length }}</span>
     <div style="margin-left:auto; display:flex; gap:0.4rem;">
       <button x-data x-show="!$store.filter.unassigned" type="button" class="btn btn-delete"
-              @click="$store.filter.unassigned = true; $el.closest('#card-list').classList.add('filter-unassigned')">Show unassigned</button>
+              @click="$store.filter.unassigned = true">Show unassigned</button>
       <button x-data x-show="$store.filter.unassigned" type="button" class="btn btn-delete"
               style="color:var(--amber); border-color:var(--amber);"
-              @click="$store.filter.unassigned = false; $el.closest('#card-list').classList.remove('filter-unassigned')">Show all</button>
+              @click="$store.filter.unassigned = false">Show all</button>
       <button x-data x-show="!$store.printMode.active" type="button" class="btn btn-save-url"
               @click="$store.printMode.active = true">Print tags</button>
       <template x-data x-if="$store.printMode.active">
@@ -845,7 +848,7 @@ PAGE_TEMPLATE = """
 document.addEventListener('alpine:init', () => {
     Alpine.store('speaker', { selected: '' });
     Alpine.store('printMode', { active: false, selected: new Set() });
-    Alpine.store('filter', { unassigned: false, totalCount: {{ total_count }}, unassignedCount: {{ unassigned_count }} });
+    Alpine.store('filter', { unassigned: false, totalCount: 0, unassignedCount: 0 });
 
     Alpine.data('formHelper', () => ({
         get selectedSpeaker() { return Alpine.store('speaker').selected; },
