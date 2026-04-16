@@ -1072,3 +1072,23 @@ def test_index_filter_css_rule_present(client: FlaskClient) -> None:
     """The page includes the CSS rule for hiding non-unassigned cards."""
     resp = client.get("/")
     assert b".filter-unassigned" in resp.data
+
+
+def test_edit_form_unassigned_has_data_attribute(client: FlaskClient) -> None:
+    """Edit form for unassigned mapping must include data-unassigned so CSS filter keeps it visible."""
+    client.post("/mappings", data={"media_uri": "uri_a", "name": "No Tag"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/edit-form")
+    assert resp.status_code == 200
+    assert b"data-unassigned" in resp.data
+
+
+def test_edit_form_assigned_lacks_data_attribute(client: FlaskClient) -> None:
+    """Edit form for assigned mapping must NOT include data-unassigned."""
+    client.post("/mappings", data={"tag_uid": "abc", "media_uri": "uri_b", "name": "Has Tag"})
+    id_ = _get_mapping_id(client)
+
+    resp = client.get(f"/mappings/{id_}/edit-form")
+    assert resp.status_code == 200
+    assert b"data-unassigned" not in resp.data

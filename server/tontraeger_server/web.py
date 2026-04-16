@@ -1320,8 +1320,9 @@ def _card_edit_html(
 
     checked = " checked" if shuffle else ""
     error_html = f'<div class="edit-error">{escape(error)}</div>' if error else ""
+    unassigned_attr = " data-unassigned" if not tag_uid else ""
 
-    return f"""<div class="card card-editing" id="card-{mapping_id}">
+    return f"""<div class="card card-editing" id="card-{mapping_id}"{unassigned_attr}>
       {thumb}
       <div class="card-body">
         {error_html}
