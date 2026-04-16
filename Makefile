@@ -3,7 +3,8 @@ ifneq (,$(wildcard .env))
 endif
 
 .PHONY: help test test-server test-client lint format typecheck check web control \
-        docker-build docker-up docker-down build-nfc-daemon sync-client run-server install-client-service
+        docker-build docker-up docker-down build-nfc-daemon sync-client run-server install-client-service \
+        deploy-server
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*##' Makefile | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
@@ -49,6 +50,11 @@ docker-down: ## Stop server via docker compose
 
 run-server: ## Rebuild image and restart server via docker compose
 	cd server/ && docker compose up --build -d
+
+# ── Server (remote) ──────────────────────────────────────
+
+deploy-server: ## Pull latest and restart server on remote host
+	ssh $(SERVER_HOST) "cd $(SERVER_DIR) && git pull && make run-server"
 
 # ── Client (Pi) ──────────────────────────────────────────
 
