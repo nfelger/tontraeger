@@ -35,3 +35,11 @@ Server and client communicate via a JSON API (`GET /api/mappings`, `POST /api/un
 - **Prefer htmx for server-driven interactions** (data fetching, rendering lists, polling, state transitions). Use htmx server-rendered HTML fragments + swaps as the default for all UI interactions.
 - **Use Alpine.js where it's genuinely simpler** than htmx — e.g., client-side DOM manipulation (setting input values), UI mode toggles, multi-state buttons, or reactive state that doesn't need a server round-trip. Alpine.js is a complement to htmx, not a last resort.
 - **Use red/green TDD** for new features and bug fixes.
+
+## NFC Reliability Breadcrumbs (Paused)
+
+- Investigation paused after reliability reached acceptable day-to-day behavior.
+- Final daemon policy in `client/nfc-daemon/main.c`: treat only `NFC_ETGRELEASED`, `NFC_EINVARG`, and `NFC_EDEVNOTSUPP` as hard misses; treat other negatives (notably `NFC_ERFTRANS`) as transient.
+- Most stable transport observed in testing: `pn532_i2c:/dev/i2c-1`.
+- Full investigation notes and hypothesis log: `docs/superpowers/plans/2026-04-10-pn532-false-removed-investigation.md`.
+- If issues return, resume with targeted diagnostics around the session handoff window (new tag placed before prior session has emitted `REMOVED`).

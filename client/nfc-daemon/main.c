@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -49,6 +50,14 @@ static void msleep(int ms)
     nanosleep(&ts, NULL);
 }
 
+static uint64_t monotonic_ms(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0;
+    return ((uint64_t) ts.tv_sec * 1000ULL) + (uint64_t)(ts.tv_nsec / 1000000L);
+}
+
 /* Open and initialize the NFC device. Retries forever on failure. */
 static nfc_device *open_device(nfc_context *context)
 {
@@ -74,7 +83,8 @@ static nfc_device *open_device(nfc_context *context)
             continue;
         }
 
-        fprintf(stderr, "nfc-daemon: device opened: %s\n", nfc_device_get_name(dev));
+        fprintf(stderr, "nfc-daemon: device opened: %s (%s)\n",
+                nfc_device_get_name(dev), nfc_device_get_connstring(dev));
         return dev;
     }
 }
@@ -99,6 +109,7 @@ int main(void)
     };
 
     char uid_str[MAX_UID_LEN * 3 + 1] = "";
+    uint64_t session_id = 0;
 
     for (;;) {
         nfc_target target;
@@ -124,21 +135,64 @@ int main(void)
         /* Tag detected. */
         format_uid(target.nti.nai.abtUid, target.nti.nai.szUidLen,
                    uid_str, sizeof(uid_str));
+        session_id++;
+        uint64_t present_ms = monotonic_ms();
+
+        fprintf(stderr,
+                "nfc-daemon: session=%" PRIu64 " present uid=%s atqa=%02x%02x sak=%02x uid_len=%u\n",
+                session_id,
+                uid_str,
+                target.nti.nai.abtAtqa[1], target.nti.nai.abtAtqa[0],
+                target.nti.nai.btSak,
+                (unsigned int)target.nti.nai.szUidLen);
         printf("PRESENT %s\n", uid_str);
 
         /* Poll for continued presence. */
         int misses = 0;
+        int poll_index = 0;
         while (misses < MISS_THRESHOLD) {
             msleep(POLL_INTERVAL_MS);
 
+            poll_index++;
+            int misses_before = misses;
             ret = nfc_initiator_target_is_present(dev, NULL);
-            if (ret < 0) {
-                misses++;
-            } else {
+
+            const char *classification = "transient";
+            if (ret >= 0) {
                 misses = 0;
+                classification = "ok";
+            } else if (ret == NFC_ETGRELEASED || ret == NFC_EINVARG || ret == NFC_EDEVNOTSUPP) {
+                misses++;
+                classification = "hard-miss";
+            } else {
+                /*
+                 * Transient communication errors (e.g. NFC_ERFTRANS) are common
+                 * on this UART setup while the tag is still present. Treating
+                 * them as hard misses causes false REMOVED events.
+                 */
+                classification = "transient";
             }
+
+            uint64_t elapsed_ms = monotonic_ms() - present_ms;
+            fprintf(stderr,
+                    "nfc-daemon: session=%" PRIu64 " poll=%d ret=%d class=%s err=\"%s\" misses=%d->%d elapsed_ms=%" PRIu64 "\n",
+                    session_id,
+                    poll_index,
+                    ret,
+                    classification,
+                    nfc_strerror(dev),
+                    misses_before,
+                    misses,
+                    elapsed_ms);
         }
 
+        fprintf(stderr,
+                "nfc-daemon: session=%" PRIu64 " removed uid=%s elapsed_ms=%" PRIu64 " polls=%d terminal_misses=%d\n",
+                session_id,
+                uid_str,
+                monotonic_ms() - present_ms,
+                poll_index,
+                misses);
         printf("REMOVED %s\n", uid_str);
 
         /* Deselect so we can detect the next tag (or the same one re-placed). */
