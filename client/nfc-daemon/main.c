@@ -31,6 +31,26 @@
 /* Maximum UID length for ISO14443A tags (bytes). */
 #define MAX_UID_LEN 10
 
+#define DEBUG_LOG(...)                          \
+    do {                                        \
+        if (debug_enabled())                    \
+            fprintf(stderr, __VA_ARGS__);       \
+    } while (0)
+
+static int debug_enabled(void)
+{
+    static int initialized = 0;
+    static int enabled = 0;
+
+    if (!initialized) {
+        const char *debug = getenv("NFC_DAEMON_DEBUG");
+        enabled = (debug != NULL && debug[0] != '\0' && debug[0] != '0');
+        initialized = 1;
+    }
+
+    return enabled;
+}
+
 /* Format a UID as colon-separated lowercase hex.
  * Example: {0x04, 0xab, 0xcd} → "04:ab:cd" */
 static void format_uid(const uint8_t *uid, size_t len, char *buf, size_t bufsize)
@@ -83,8 +103,8 @@ static nfc_device *open_device(nfc_context *context)
             continue;
         }
 
-        fprintf(stderr, "nfc-daemon: device opened: %s (%s)\n",
-                nfc_device_get_name(dev), nfc_device_get_connstring(dev));
+        DEBUG_LOG("nfc-daemon: device opened: %s (%s)\n",
+                  nfc_device_get_name(dev), nfc_device_get_connstring(dev));
         return dev;
     }
 }
@@ -138,13 +158,12 @@ int main(void)
         session_id++;
         uint64_t present_ms = monotonic_ms();
 
-        fprintf(stderr,
-                "nfc-daemon: session=%" PRIu64 " present uid=%s atqa=%02x%02x sak=%02x uid_len=%u\n",
-                session_id,
-                uid_str,
-                target.nti.nai.abtAtqa[1], target.nti.nai.abtAtqa[0],
-                target.nti.nai.btSak,
-                (unsigned int)target.nti.nai.szUidLen);
+        DEBUG_LOG("nfc-daemon: session=%" PRIu64 " present uid=%s atqa=%02x%02x sak=%02x uid_len=%u\n",
+                  session_id,
+                  uid_str,
+                  target.nti.nai.abtAtqa[1], target.nti.nai.abtAtqa[0],
+                  target.nti.nai.btSak,
+                  (unsigned int)target.nti.nai.szUidLen);
         printf("PRESENT %s\n", uid_str);
 
         /* Poll for continued presence. */
@@ -174,25 +193,23 @@ int main(void)
             }
 
             uint64_t elapsed_ms = monotonic_ms() - present_ms;
-            fprintf(stderr,
-                    "nfc-daemon: session=%" PRIu64 " poll=%d ret=%d class=%s err=\"%s\" misses=%d->%d elapsed_ms=%" PRIu64 "\n",
-                    session_id,
-                    poll_index,
-                    ret,
-                    classification,
-                    nfc_strerror(dev),
-                    misses_before,
-                    misses,
-                    elapsed_ms);
+            DEBUG_LOG("nfc-daemon: session=%" PRIu64 " poll=%d ret=%d class=%s err=\"%s\" misses=%d->%d elapsed_ms=%" PRIu64 "\n",
+                      session_id,
+                      poll_index,
+                      ret,
+                      classification,
+                      nfc_strerror(dev),
+                      misses_before,
+                      misses,
+                      elapsed_ms);
         }
 
-        fprintf(stderr,
-                "nfc-daemon: session=%" PRIu64 " removed uid=%s elapsed_ms=%" PRIu64 " polls=%d terminal_misses=%d\n",
-                session_id,
-                uid_str,
-                monotonic_ms() - present_ms,
-                poll_index,
-                misses);
+        DEBUG_LOG("nfc-daemon: session=%" PRIu64 " removed uid=%s elapsed_ms=%" PRIu64 " polls=%d terminal_misses=%d\n",
+                  session_id,
+                  uid_str,
+                  monotonic_ms() - present_ms,
+                  poll_index,
+                  misses);
         printf("REMOVED %s\n", uid_str);
 
         /* Deselect so we can detect the next tag (or the same one re-placed). */
