@@ -1,11 +1,23 @@
 import asyncio
 import logging
+import time
 
+import requests
 import soco
 from soco import SoCo
+from soco.exceptions import SoCoUPnPException
 from soco.plugins.sharelink import ShareLinkPlugin
 
 logger = logging.getLogger(__name__)
+
+# Backoff after consecutive play_uri failures. Index = consecutive_failures - 1.
+# First failure has no penalty so a one-off glitch doesn't block the next tap.
+_BACKOFF_SCHEDULE_S = (0, 2, 5, 15, 30)
+
+# Errors where the speaker is reachable but rejecting or stalling — usually an
+# upstream issue (e.g. Spotify outage), not a stale reference. Rediscovery would
+# just hand back another SoCo pointing at the same misbehaving box.
+_SPEAKER_REACHABLE_ERRORS = (requests.ReadTimeout, SoCoUPnPException)
 
 
 class SonosAPI:
@@ -14,6 +26,8 @@ class SonosAPI:
         self.speaker_name = speaker_name
         self._speaker: SoCo | None = None
         self._pending_discover: asyncio.Task[None] | None = None
+        self._consecutive_failures = 0
+        self._next_attempt_at = 0.0
 
     def _find_speaker(self) -> SoCo:
         """Search the network for the speaker. Raises if not found."""
@@ -62,15 +76,28 @@ class SonosAPI:
     async def play_uri(self, uri: str, shuffle: bool = False) -> None:
         """Play a URI. Finds the speaker first if needed.
 
-        On error, forgets the speaker so the next call rediscovers it.
+        Honours a backoff window after recent failures and only forgets the
+        speaker for errors that suggest the cached reference is actually stale.
         """
+        now = time.monotonic()
+        if now < self._next_attempt_at:
+            raise RuntimeError(
+                f"Sonos in backoff after {self._consecutive_failures} failures "
+                f"({self._next_attempt_at - now:.1f}s remaining)"
+            )
+
         if self._speaker is None:
             await self.discover()
 
         loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(None, lambda: self._do_play(uri, shuffle))
+        except _SPEAKER_REACHABLE_ERRORS as e:
+            self._record_failure()
+            logger.error("play_uri failed (speaker reachable, upstream issue?): %s", e)
+            raise
         except Exception as e:
+            self._record_failure()
             logger.error("play_uri failed: %s — clearing speaker for rediscovery", e)
             self._speaker = None
             # Immediately kick off rediscovery so stop_playback() remains functional
@@ -80,6 +107,14 @@ class SonosAPI:
                 self._pending_discover.cancel()
             self._pending_discover = asyncio.create_task(self.discover())
             raise
+        else:
+            self._consecutive_failures = 0
+            self._next_attempt_at = 0.0
+
+    def _record_failure(self) -> None:
+        self._consecutive_failures += 1
+        idx = min(self._consecutive_failures - 1, len(_BACKOFF_SCHEDULE_S) - 1)
+        self._next_attempt_at = time.monotonic() + _BACKOFF_SCHEDULE_S[idx]
 
     async def stop_playback(self) -> None:
         """Pause playback. Does nothing if no speaker has been found yet."""
