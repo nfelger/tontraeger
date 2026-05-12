@@ -4,11 +4,17 @@ import time
 
 import requests
 import soco
+import soco.config
 from soco import SoCo
 from soco.exceptions import SoCoUPnPException
 from soco.plugins.sharelink import ShareLinkPlugin
 
 logger = logging.getLogger(__name__)
+
+# SoCo defaults to 20s, which is far too generous for LAN state-changes on a
+# Sonos box. Failures (e.g. speaker stalling on Spotify cloud) take 20s to
+# surface, hammering the backoff in sonos_api before it can do its job.
+soco.config.REQUEST_TIMEOUT = 5.0
 
 # Backoff after consecutive play_uri failures. Index = consecutive_failures - 1.
 # First failure has no penalty so a one-off glitch doesn't block the next tap.
