@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+import requests
+from soco.exceptions import SoCoUPnPException
 
 from tontraeger_client.sonos_api import SonosAPI
 
@@ -334,3 +336,203 @@ async def test_stop_error_does_not_clear_speaker() -> None:
     await api.stop_playback()
 
     assert api._speaker is fake  # NOT cleared
+
+
+# ── play_uri() error classification ──────────────────────
+
+
+def _make_upnp_error() -> SoCoUPnPException:
+    return SoCoUPnPException("rejected", "800", "<xml/>")
+
+
+@pytest.mark.asyncio
+async def test_play_uri_readtimeout_keeps_speaker() -> None:
+    """ReadTimeout means speaker is reachable but stalling — don't drop the reference."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+
+    def stalling_play(uri: str, shuffle: bool = False) -> None:
+        raise requests.ReadTimeout("speaker timed out")
+
+    api._do_play = stalling_play  # type: ignore[assignment]
+
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("x-sonosapi-radio:test")
+
+    assert api._speaker is fake
+    assert api._pending_discover is None
+
+
+@pytest.mark.asyncio
+async def test_play_uri_upnp_error_keeps_speaker() -> None:
+    """SoCoUPnPException means the speaker rejected the action — don't drop the reference."""
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+
+    def rejecting_play(uri: str, shuffle: bool = False) -> None:
+        raise _make_upnp_error()
+
+    api._do_play = rejecting_play  # type: ignore[assignment]
+
+    with pytest.raises(SoCoUPnPException):
+        await api.play_uri("x-sonosapi-radio:test")
+
+    assert api._speaker is fake
+    assert api._pending_discover is None
+
+
+# ── play_uri() backoff ───────────────────────────────────
+
+
+class _FakeClock:
+    """Monotonic clock that only advances when explicitly told to."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.mark.asyncio
+async def test_play_uri_first_failure_does_not_delay_next_attempt(monkeypatch) -> None:
+    """A single glitch must not block the next tap — first failure incurs no penalty."""
+    clock = _FakeClock()
+    monkeypatch.setattr("tontraeger_client.sonos_api.time.monotonic", clock)
+
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    calls = 0
+
+    def maybe_failing_play(uri: str, shuffle: bool = False) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise requests.ReadTimeout("transient")
+
+    api._do_play = maybe_failing_play  # type: ignore[assignment]
+
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("x-sonosapi-radio:a")
+
+    # No clock advance — second call is allowed immediately.
+    await api.play_uri("x-sonosapi-radio:b")
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_play_uri_second_failure_imposes_backoff(monkeypatch) -> None:
+    """After two consecutive failures, the next attempt is blocked for ~2s."""
+    clock = _FakeClock()
+    monkeypatch.setattr("tontraeger_client.sonos_api.time.monotonic", clock)
+
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+
+    def always_fails(uri: str, shuffle: bool = False) -> None:
+        raise requests.ReadTimeout("upstream broken")
+
+    api._do_play = always_fails  # type: ignore[assignment]
+
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("x-sonosapi-radio:a")
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("x-sonosapi-radio:b")
+
+    # Third call within the 2s window must short-circuit before _do_play.
+    fake.call_order.clear()
+    with pytest.raises(RuntimeError, match="backoff"):
+        await api.play_uri("x-sonosapi-radio:c")
+    assert fake.call_order == []
+
+    # After advancing past the backoff window, the call goes through (and fails again).
+    clock.advance(2.0)
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("x-sonosapi-radio:d")
+
+
+@pytest.mark.asyncio
+async def test_play_uri_backoff_is_tag_independent(monkeypatch) -> None:
+    """Backoff applies to the speaker, not a specific URI — different URIs share the window."""
+    clock = _FakeClock()
+    monkeypatch.setattr("tontraeger_client.sonos_api.time.monotonic", clock)
+
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    attempts: list[str] = []
+
+    def always_fails(uri: str, shuffle: bool = False) -> None:
+        attempts.append(uri)
+        raise requests.ReadTimeout("upstream broken")
+
+    api._do_play = always_fails  # type: ignore[assignment]
+
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("uri-A")
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("uri-B")
+
+    # A different URI within the window is also blocked.
+    with pytest.raises(RuntimeError, match="backoff"):
+        await api.play_uri("uri-C")
+    assert attempts == ["uri-A", "uri-B"]
+
+
+@pytest.mark.asyncio
+async def test_play_uri_success_resets_backoff(monkeypatch) -> None:
+    """A successful play after failures resets the counter so a later glitch isn't penalised."""
+    clock = _FakeClock()
+    monkeypatch.setattr("tontraeger_client.sonos_api.time.monotonic", clock)
+
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+    calls = 0
+
+    def flaky_play(uri: str, shuffle: bool = False) -> None:
+        nonlocal calls
+        calls += 1
+        if calls in (1, 2, 4):
+            raise requests.ReadTimeout("flaky")
+
+    api._do_play = flaky_play  # type: ignore[assignment]
+
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("uri-A")
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("uri-B")
+    clock.advance(2.0)
+    # 3rd call succeeds → reset.
+    await api.play_uri("uri-C")
+    assert api._consecutive_failures == 0
+    # 4th call fails but is the FIRST failure of a fresh streak, so no delay.
+    with pytest.raises(requests.ReadTimeout):
+        await api.play_uri("uri-D")
+    # And the next attempt is immediately allowed.
+    await api.play_uri("uri-E")
+
+
+@pytest.mark.asyncio
+async def test_play_uri_backoff_caps_at_30s(monkeypatch) -> None:
+    """The backoff window never exceeds 30s, even after many consecutive failures."""
+    clock = _FakeClock()
+    monkeypatch.setattr("tontraeger_client.sonos_api.time.monotonic", clock)
+
+    fake = FakeSoCo()
+    api = FakeSonosAPI(fake_speaker=fake)
+
+    def always_fails(uri: str, shuffle: bool = False) -> None:
+        raise requests.ReadTimeout("flaky")
+
+    api._do_play = always_fails  # type: ignore[assignment]
+
+    # Drive ten consecutive failures, advancing past each window before the next call.
+    for _ in range(10):
+        before = clock.now
+        with pytest.raises(requests.ReadTimeout):
+            await api.play_uri("uri")
+        imposed = api._next_attempt_at - before
+        assert imposed <= 30.0
+        clock.advance(max(imposed, 0.1))
